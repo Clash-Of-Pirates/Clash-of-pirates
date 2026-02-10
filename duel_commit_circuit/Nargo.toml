@@ -1,0 +1,6 @@
+[package]
+name = "duel_commit_circuit"
+type = "bin"
+authors = [""]
+
+[dependencies]
