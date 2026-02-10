@@ -1,0 +1,4 @@
+attacks = ["0", "1", "2"]
+defenses = ["0", "1", "2"]
+match_id = "1"
+player_address = "12345678"
