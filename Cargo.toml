@@ -5,6 +5,9 @@ members = [
   "contracts/mock-game-hub",
   "contracts/clash",
 ]
+exclude = [
+ "contracts/ultrahonk-soroban-contract"
+]
 
 [workspace.dependencies]
 soroban-sdk = "25.0.2"
