@@ -1,7 +1,7 @@
 attacks = ["0", "1", "2"]
 commitment = "0x061bc086c81bd276e2af34105abf6955d70e8681e76975122f86d4fc008695ed"
 defenses = ["0", "1", "2"]
-match_id = "1"
+session_id = "1"
 player_address = "12345678"
 revealed_attacks = ["0", "1", "2"]
 revealed_defenses = ["0", "1", "2"]
