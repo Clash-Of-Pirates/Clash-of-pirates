@@ -1,6 +1,0 @@
-[package]
-name = "helper_circuit"
-type = "bin"
-authors = [""]
-
-[dependencies]

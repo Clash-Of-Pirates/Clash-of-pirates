@@ -1,6 +1,0 @@
-[package]
-name = "duel_reveal_circuit"
-type = "bin"
-authors = [""]
-
-[dependencies]

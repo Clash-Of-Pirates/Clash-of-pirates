@@ -49,7 +49,7 @@ try {
 
 // Step 2: Deploy contracts
 console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-console.log("Step 2/4: Deploying to testnet");
+console.log("Step 2/4: Deploying to network");
 console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 try {
   await $`bun run deploy`;
@@ -74,8 +74,8 @@ console.log("\n━━━━━━━━━━━━━━━━━━━━━�
 console.log("Step 4/4: Writing local configuration");
 console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
-let rpcUrl = 'https://soroban-testnet.stellar.org';
-let networkPassphrase = 'Test SDF Network ; September 2015';
+let rpcUrl = 'http://localhost:8000/soroban/rpc';
+let networkPassphrase = 'Standalone Network ; February 2017';
 let wallets: { admin: string; player1: string; player2: string } = { admin: '', player1: '', player2: '' };
 const contracts = await getWorkspaceContracts();
 const contractIds: Record<string, string> = {};

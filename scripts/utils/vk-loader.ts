@@ -17,6 +17,20 @@ export async function loadVkFromFile(vkPath: string): Promise<Buffer> {
   }
 }
 
+
+export async function loadVkJson(circuitPath: string): Promise<string> {
+  const jsonPath = `${circuitPath}`;
+  const fileContent = await fsPromises.readFile(jsonPath, 'utf8');
+  const circuitData = JSON.parse(fileContent);
+  
+  if (!circuitData.vkey) {
+    throw new Error("No vkey found in Noir JSON");
+  }
+  
+  return circuitData.vkey;
+}
+
+
 /**
  * Load both verification keys for Clash contract
  * 

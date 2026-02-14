@@ -10,6 +10,9 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { workspace = true }
+ultrahonk_soroban_verifier = { path = "../rs-soroban-ultrahonk/ultrahonk-soroban-verifier", default-features = false }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+soroban-env-host = "25.0.0"
+num-bigint = "0.4"

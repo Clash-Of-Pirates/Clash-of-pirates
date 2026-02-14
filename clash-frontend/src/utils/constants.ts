@@ -8,7 +8,10 @@ import { getRuntimeConfig } from './runtimeConfig';
 const runtimeConfig = getRuntimeConfig();
 
 export const SOROBAN_RPC_URL =
-  runtimeConfig?.rpcUrl || import.meta.env.VITE_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+import.meta.env.DEV 
+? 'http://localhost:8000/rpc'  
+: 'https://soroban-testnet.stellar.org'
+
 export const RPC_URL = SOROBAN_RPC_URL; // Alias for compatibility
 export const NETWORK_PASSPHRASE =
   runtimeConfig?.networkPassphrase ||

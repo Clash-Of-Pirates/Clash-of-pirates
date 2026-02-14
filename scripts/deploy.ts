@@ -59,13 +59,43 @@ Examples:
 console.log("🚀 Deploying contracts to Stellar testnet...\n");
 const Keypair = await loadKeypairFactory();
 
-const NETWORK = 'testnet';
-const RPC_URL = 'https://soroban-testnet.stellar.org';
-const NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
 const EXISTING_GAME_HUB_TESTNET_CONTRACT_ID = 'CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG';
+const GAME_HUB_LOCAL_CONTRACT_ID = 'CCFP3VUSWMKXTQOXVQKW56XZ3ZAZ357IZHQMAUGPT65GEKJAYIC3INOZ';
+const VERIFIER_LOCAL_CONTRACT_ID = 'CDFWUHFR42QMUAL5TQ4FS65NXD7EGIKQ5DHKMVCMILM4HUEALEXKY2FS';
+
+// const NETWORK = 'testnet';
+// const RPC_URL = 'https://soroban-testnet.stellar.org';
+// const NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
+
+
+
+// ── Network configuration ────────────────────────────────────────────────────
+const NETWORK = 'local' as const // 'local' | 'testnet'
+
+const NETWORK_CONFIG = {
+  local: {
+    rpcUrl:            'http://localhost:8000/soroban/rpc',
+    horizonUrl:        'http://localhost:8000',
+    friendbotUrl:      'http://localhost:8000/friendbot',
+    networkPassphrase: 'Standalone Network ; February 2017',
+  },
+  testnet: {
+    rpcUrl:            'https://soroban-testnet.stellar.org',
+    horizonUrl:        'https://horizon-testnet.stellar.org',
+    friendbotUrl:      'https://friendbot.stellar.org',
+    networkPassphrase: 'Test SDF Network ; September 2015',
+  },
+} as const;
+
+const RPC_URL            = NETWORK_CONFIG[NETWORK].rpcUrl;
+const NETWORK_PASSPHRASE = NETWORK_CONFIG[NETWORK].networkPassphrase;
+const HORIZON_URL        = NETWORK_CONFIG[NETWORK].horizonUrl;
+const FRIENDBOT_URL      = NETWORK_CONFIG[NETWORK].friendbotUrl;
+
+// ── Account helpers ───────────────────────────────────────────────────────────
 
 async function testnetAccountExists(address: string): Promise<boolean> {
-  const res = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`, { method: 'GET' });
+  const res = await fetch(`${HORIZON_URL}/accounts/${address}`, { method: 'GET' });
   if (res.status === 404) return false;
   if (!res.ok) throw new Error(`Horizon error ${res.status} checking ${address}`);
   return true;
@@ -73,17 +103,49 @@ async function testnetAccountExists(address: string): Promise<boolean> {
 
 async function ensureTestnetFunded(address: string): Promise<void> {
   if (await testnetAccountExists(address)) return;
-  console.log(`💰 Funding ${address} via friendbot...`);
-  const fundRes = await fetch(`https://friendbot.stellar.org?addr=${address}`, { method: 'GET' });
+
+  console.log(`💰 Funding ${address} via friendbot (${NETWORK})...`);
+  const fundRes = await fetch(`${FRIENDBOT_URL}?addr=${address}`, { method: 'GET' });
   if (!fundRes.ok) {
-    throw new Error(`Friendbot funding failed (${fundRes.status}) for ${address}`);
+    throw new Error(`Friendbot funding failed (${fundRes.status}) for ${address} on ${NETWORK}`);
   }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await new Promise((r) => setTimeout(r, 750));
+
+  const RETRY_CONFIG = {
+    local:   { maxAttempts: 10, delayMs: 300 },
+    testnet: { maxAttempts: 5,  delayMs: 750 },
+  } as const;
+  
+  const { maxAttempts, delayMs } = RETRY_CONFIG[NETWORK];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await new Promise((r) => setTimeout(r, delayMs));
     if (await testnetAccountExists(address)) return;
   }
-  throw new Error(`Funded ${address} but it still doesn't appear on Horizon yet`);
+
+  throw new Error(`Funded ${address} on ${NETWORK} but it still doesn't appear on Horizon`);
 }
+
+
+// async function testnetAccountExists(address: string): Promise<boolean> {
+//   const res = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`, { method: 'GET' });
+//   if (res.status === 404) return false;
+//   if (!res.ok) throw new Error(`Horizon error ${res.status} checking ${address}`);
+//   return true;
+// }
+
+// async function ensureTestnetFunded(address: string): Promise<void> {
+//   if (await testnetAccountExists(address)) return;
+//   console.log(`💰 Funding ${address} via friendbot...`);
+//   const fundRes = await fetch(`https://friendbot.stellar.org?addr=${address}`, { method: 'GET' });
+//   if (!fundRes.ok) {
+//     throw new Error(`Friendbot funding failed (${fundRes.status}) for ${address}`);
+//   }
+//   for (let attempt = 0; attempt < 5; attempt++) {
+//     await new Promise((r) => setTimeout(r, 750));
+//     if (await testnetAccountExists(address)) return;
+//   }
+//   throw new Error(`Funded ${address} but it still doesn't appear on Horizon yet`);
+// }
 
 async function testnetContractExists(contractId: string): Promise<boolean> {
   const tmpPath = join(tmpdir(), `stellar-contract-${contractId}.wasm`);
@@ -249,20 +311,21 @@ const adminSecret = adminKeypair.secret();
 const deployed: Record<string, string> = { ...existingContractIds };
 
 // Ensure mock Game Hub exists so we can pass it into game constructors.
-let mockGameHubId = existingContractIds[mock.packageName] || "";
-if (shouldEnsureMock) {
-  const candidateMockIds = [
-    existingContractIds[mock.packageName],
-    existingDeployment?.mockGameHubId,
-    EXISTING_GAME_HUB_TESTNET_CONTRACT_ID,
-  ].filter(Boolean) as string[];
+let mockGameHubId = "CCFP3VUSWMKXTQOXVQKW56XZ3ZAZ357IZHQMAUGPT65GEKJAYIC3INOZ";
+// let mockGameHubId = existingContractIds[mock.packageName] || "";
+// if (shouldEnsureMock) {
+//   const candidateMockIds = [
+//     existingContractIds[mock.packageName],
+//     existingDeployment?.mockGameHubId,
+//     EXISTING_GAME_HUB_TESTNET_CONTRACT_ID,
+//   ].filter(Boolean) as string[];
 
-  for (const candidate of candidateMockIds) {
-    if (await testnetContractExists(candidate)) {
-      mockGameHubId = candidate;
-      break;
-    }
-  }
+//   for (const candidate of candidateMockIds) {
+//     if (await testnetContractExists(candidate)) {
+//       mockGameHubId = candidate;
+//       break;
+//     }
+//   }
 
   if (mockGameHubId) {
     deployed[mock.packageName] = mockGameHubId;
@@ -288,45 +351,23 @@ if (shouldEnsureMock) {
       process.exit(1);
     }
   }
-}
+// }
 
 for (const contract of contracts) {
   if (contract.isMockHub) continue;
 
   console.log(`Deploying ${contract.packageName}...`);
   if (contract.packageName === "clash") {
-    // Clash contract (requires VKs)
     console.log(`Deploying ${contract.packageName}...`);
-    
-    // if (!contract.requiresVks || !contract.vkPaths) {
-    //   console.error("❌ Clash contract missing VK configuration");
-    //   process.exit(1);
-    // }
-
     try {
-      // Load VKs
-      const vks = await loadClashVks(
-        "./duel_commit_circuit/target/vk",
-        "./duel_reveal_circuit/target/vk"
-      );
-
-      // Convert to Soroban ScVal for contract call
-  // const commitVkScVal = xdr.ScVal.scvBytes(vks.commitVk);
-  // const revealVkScVal = xdr.ScVal.scvBytes(vks.revealVk);
-
-  const commitVkScVal = vks.commitVk.toString('hex');
-  const revealVkScVal = vks.revealVk.toString('hex');
-
       console.log("  Installing WASM...");
       const installResult =
         await $`stellar contract install --wasm ${contract.wasmPath} --source-account ${adminSecret} --network ${NETWORK}`.text();
       const wasmHash = installResult.trim();
       console.log(`  WASM hash: ${wasmHash}`);
-
-      console.log("  Deploying with VKs...");
       
       const deployResult =
-        await $`stellar contract deploy --wasm-hash ${wasmHash} --source-account ${adminSecret} --network ${NETWORK} -- --admin ${adminAddress} --game-hub ${mockGameHubId} --commit_vk ${commitVkScVal} --reveal_vk ${revealVkScVal}`.text();
+        await $`stellar contract deploy --wasm-hash ${wasmHash} --source-account ${adminSecret} --network ${NETWORK} -- --admin ${adminAddress} --game-hub ${GAME_HUB_LOCAL_CONTRACT_ID} --verifier_contract ${VERIFIER_LOCAL_CONTRACT_ID}`.text();
 
       const contractId = deployResult.trim();
       deployed[contract.packageName] = contractId;

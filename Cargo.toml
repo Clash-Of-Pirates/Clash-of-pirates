@@ -6,7 +6,8 @@ members = [
   "contracts/clash",
 ]
 exclude = [
- "contracts/ultrahonk-soroban-contract"
+ "contracts/ultrahonk-soroban-contract",
+ "contracts/rs-soroban-ultrahonk"
 ]
 
 [workspace.dependencies]
@@ -21,3 +22,7 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
+
+[patch."https://github.com/stellar/rs-soroban-sdk.git"]
+soroban-sdk = { version = "=25.0.2" }
+
