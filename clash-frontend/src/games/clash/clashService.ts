@@ -19,8 +19,7 @@ type ClientOptions = contract.ClientOptions;
 
 /**
  * Service for interacting with the ClashGame contract
- * 
- * UPDATED: Method signatures now match the actual Rust contract
+
  */
 export class ClashGameService {
   private baseClient: ClashGameClient;
@@ -32,7 +31,7 @@ export class ClashGameService {
       contractId: this.contractId,
       networkPassphrase: NETWORK_PASSPHRASE,
       rpcUrl: RPC_URL,
-      allowHttp: RPC_URL.startsWith('http://'),  // Allow HTTP for local development
+      allowHttp: RPC_URL.startsWith('http://'),
     });
   }
 
@@ -273,6 +272,8 @@ export class ClashGameService {
       DEFAULT_METHOD_OPTIONS.timeoutInSeconds,
       validUntilLedgerSeq
     );
+    const txHash = sentTx.sendTransactionResponse?.hash;
+    console.log(`[Start_game] ✅ tx hash: ${txHash}`);
     return sentTx.result;
   }
 
@@ -318,7 +319,7 @@ export class ClashGameService {
         const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
         throw new Error(`Transaction failed: ${errorMessage}`);
       }
-
+      console.log(`[commitMoves] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
       return sentTx.result;
     } catch (err) {
       if (err instanceof Error && err.message.includes('Transaction failed!')) {
@@ -375,7 +376,7 @@ export class ClashGameService {
         const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
         throw new Error(`Transaction failed: ${errorMessage}`);
       }
-
+      console.log(`[revealMoves] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
       return sentTx.result;
     } catch (err) {
       if (err instanceof Error && err.message.includes('Transaction failed!')) {
@@ -396,8 +397,7 @@ export class ClashGameService {
     callerAddress?: string,
     authTtlMinutes?: number
   ): Promise<BattleResult> {
-    // Use caller address if provided, otherwise use a placeholder
-    // The contract doesn't care who calls it, but we need an address for the client
+
     const address = callerAddress || 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
     
     const client = this.createSigningClient(address, signer);
@@ -421,8 +421,9 @@ export class ClashGameService {
         throw new Error(`Transaction failed: ${errorMessage}`);
       }
 
-      // Result is wrapped in Result<BattleResult>
+      
       if (sentTx.result.isOk && sentTx.result.isOk()) {
+        console.log(`[resolveBattle] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
         return sentTx.result.unwrap();
       }
 
@@ -453,7 +454,7 @@ export class ClashGameService {
   }
 
   // ========================================================================
-  // Multi-Sig Game Start (Similar to DiceDuel pattern)
+  // Multi-Sig Game Start 
   // ========================================================================
 
   async prepareStartGame(
@@ -670,6 +671,7 @@ export class ClashGameService {
       DEFAULT_METHOD_OPTIONS.timeoutInSeconds,
       validUntilLedgerSeq
     );
+    console.log(`[finalizeStartGame] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
     return sentTx.result;
   }
 
@@ -735,6 +737,6 @@ export class ClashGameService {
   }
 }
 
-// Export Attack and Defense enums for convenience
+
 export { Attack, Defense };
 export type { Move, Challenge, GamePlayback, BattleResult, Game };

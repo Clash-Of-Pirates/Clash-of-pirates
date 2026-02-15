@@ -1,7 +1,5 @@
 /**
- * ClashGame.tsx - ENHANCED WITH IMMERSIVE CARD UI & CINEMATIC PLAYBACK
- * All original functionality preserved, UI completely transformed
- * FIX: All sub-components moved outside ClashGame to prevent remount glitching
+ * ClashGame.tsx
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -14,6 +12,8 @@ import { devWalletService, DevWalletService } from '@/services/devWalletService'
 import { NoirService } from '@/utils/NoirService';
 import type { Game, Move, GamePlayback } from './bindings';
 import { Attack, Defense } from './bindings';
+import { PirateStoryBox } from '@/components/PirateStoryBox';
+import '@/components/PirateStoryBox.css';
 
 import {
   PhaseHeader,
@@ -120,7 +120,7 @@ const DEFENSE_CARDS = {
   [Defense.Block]: {
     name: 'Block',
     emoji: '🛡️',
-    info: 'Stops: Lightning & Slash',
+    info: 'Stops: Lightning',
     flavor: 'An impenetrable defense',
     gradient: 'from-sky-600 to-cyan-400',
     borderColor: 'border-sky-500',
@@ -129,7 +129,7 @@ const DEFENSE_CARDS = {
   [Defense.Dodge]: {
     name: 'Dodge',
     emoji: '🏃',
-    info: 'Stops: Fireball & Slash',
+    info: 'Stops: Slash ',
     flavor: 'A shadow in the wind',
     gradient: 'from-emerald-600 to-green-400',
     borderColor: 'border-emerald-500',
@@ -138,7 +138,7 @@ const DEFENSE_CARDS = {
   [Defense.Counter]: {
     name: 'Counter',
     emoji: '🔄',
-    info: 'Stops: Lightning & Fire',
+    info: 'Stops: Fire',
     flavor: 'Turn their strength against them',
     gradient: 'from-pink-600 to-rose-400',
     borderColor: 'border-pink-500',
@@ -147,7 +147,7 @@ const DEFENSE_CARDS = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// Sub-components — defined OUTSIDE ClashGame so React never remounts them
+// Sub-components
 // ═══════════════════════════════════════════════════════════════════════
 
 interface BattleCardProps {
@@ -208,8 +208,6 @@ const BattleCard = ({
     </div>
   );
 };
-
-// ─────────────────────────────────────────────────────────────
 
 interface TurnSlotProps {
   turnNumber: number;
@@ -286,8 +284,6 @@ const TurnSlot = ({
   );
 };
 
-// ─────────────────────────────────────────────────────────────
-
 interface CardSelectionModalProps {
   cardSelectionMode: { turn: number; type: 'attack' | 'defense' } | null;
   onClose: () => void;
@@ -329,13 +325,16 @@ const CardSelectionModal = ({
   );
 };
 
-// ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// CINEMATIC BATTLE PLAYBACK - Movie-like Experience
+// ═══════════════════════════════════════════════════════════════════════
 
 interface CinematicBattlePlaybackProps {
   gamePlayback: GamePlayback;
   currentCinematicTurn: number;
   setCurrentCinematicTurn: (n: number) => void;
   setIsPlayingCinematic: (b: boolean) => void;
+  userAddress: string;
 }
 
 const CinematicBattlePlayback = ({
@@ -343,106 +342,324 @@ const CinematicBattlePlayback = ({
   currentCinematicTurn,
   setCurrentCinematicTurn,
   setIsPlayingCinematic,
+  userAddress,
 }: CinematicBattlePlaybackProps) => {
+  const [animationPhase, setAnimationPhase] = useState<'intro' | 'p1-attack' | 'p1-result' | 'p2-attack' | 'p2-result' | 'complete'>('intro');
+  const [showWinner, setShowWinner] = useState(false);
   const turn = gamePlayback.turn_results[currentCinematicTurn];
+  
+  useEffect(() => {
+    // Reset animation when turn changes
+    setAnimationPhase('intro');
+    setShowWinner(false);
+    
+    const timeline = [
+      { phase: 'intro', delay: 0 },
+      { phase: 'p1-attack', delay: 1500 },
+      { phase: 'p1-result', delay: 3500 },
+      { phase: 'p2-attack', delay: 5500 },
+      { phase: 'p2-result', delay: 7500 },
+      { phase: 'complete', delay: 9000 },
+    ];
+    
+    const timeouts = timeline.map(({ phase, delay }) =>
+      setTimeout(() => setAnimationPhase(phase as any), delay)
+    );
+    
+    // Show winner after last turn completes
+    const isLastTurn = currentCinematicTurn === gamePlayback.turn_results.length - 1;
+    if (isLastTurn) {
+      timeouts.push(setTimeout(() => setShowWinner(true), 10500));
+    }
+    
+    return () => timeouts.forEach(clearTimeout);
+  }, [currentCinematicTurn, gamePlayback.turn_results.length]);
+  
   if (!turn) return null;
 
+  const p1Attack = ATTACK_CARDS[Number(turn.player1_move.attack) as Attack];
+  const p1Defense = DEFENSE_CARDS[Number(turn.player1_move.defense) as Defense];
+  const p2Attack = ATTACK_CARDS[Number(turn.player2_move.attack) as Attack];
+  const p2Defense = DEFENSE_CARDS[Number(turn.player2_move.defense) as Defense];
+  
+  const p1DamageTaken = Number(turn.player1_damage_taken);
+  const p2DamageTaken = Number(turn.player2_damage_taken);
+  const p1HPRemaining = Number(turn.player1_hp_remaining);
+  const p2HPRemaining = Number(turn.player2_hp_remaining);
+  
+  // Determine winner
+  const winnerAddress = gamePlayback.winner?.toString();
+  const isPlayer1Winner = winnerAddress === gamePlayback.player1.toString();
+  const isPlayer2Winner = winnerAddress === gamePlayback.player2.toString();
+  const isUserWinner = winnerAddress === userAddress;
+  const isDraw = p1HPRemaining === p2HPRemaining;
+
   return (
-    <div className="cinematic-container">
-      <div className="cinematic-stage">
-        <div className="turn-announcement">
-          ⚔️ TURN {Number(turn.turn) + 1}: {['OPENING STRIKE', 'DECISIVE BLOW', 'FINAL STAND'][Number(turn.turn)]}
+    <div className="cinematic-overlay">
+      <div className="cinematic-viewport">
+        {/* Dramatic Turn Title */}
+        <div className={`turn-title-card ${animationPhase !== 'intro' ? 'fade-out' : ''}`}>
+          <div className="turn-chapter">ROUND {Number(turn.turn) + 1}</div>
+          <div className="turn-subtitle">{['THE OPENING GAMBIT', 'CLASH OF PIRATES', 'THE FINAL RECKONING'][Number(turn.turn)]}</div>
+          <div className="turn-ornament">⚔ ⚔ ⚔</div>
         </div>
 
-        <div className="battle-participants">
-          <div className="participant player1">
-            <div className="ship-avatar">🏴‍☠️</div>
-            <div className="hp-display">
-              <div className="hp-bar">
-                <div
-                  className="hp-fill"
-                  style={{ width: `${(Number(turn.player1_hp_remaining) / 100) * 100}%` }}
-                ></div>
-              </div>
-              <span className="hp-text">{Number(turn.player1_hp_remaining)} HP</span>
-            </div>
-          </div>
-
-          <div className="vs-indicator">⚔️</div>
-
-          <div className="participant player2">
-            <div className="ship-avatar">🏴‍☠️</div>
-            <div className="hp-display">
-              <div className="hp-bar">
-                <div
-                  className="hp-fill"
-                  style={{ width: `${(Number(turn.player2_hp_remaining) / 100) * 100}%` }}
-                ></div>
-              </div>
-              <span className="hp-text">{Number(turn.player2_hp_remaining)} HP</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="turn-actions">
-          <div className="action-result">
-            <BattleCard
-              type="attack"
-              moveId={Number(turn.player1_move.attack)}
-              isSelected={false}
-              onClick={() => {}}
-            />
-            <div className="action-arrow">→</div>
-            <BattleCard
-              type="defense"
-              moveId={Number(turn.player2_move.defense)}
-              isSelected={false}
-              onClick={() => {}}
-            />
-            <div className="damage-indicator">
-              {Number(turn.player2_damage_taken) > 0 ? (
-                <span className="damage-number">-{Number(turn.player2_damage_taken)} HP</span>
+        {/* Winner Announcement */}
+        {showWinner && (
+          <div className="winner-announcement">
+            <div className="winner-backdrop"></div>
+            <div className="winner-content">
+              {isDraw ? (
+                <>
+                  <div className="winner-icon draw-icon">⚖️</div>
+                  <div className="winner-title draw-title">DRAW</div>
+                  <div className="winner-subtitle">Both warriors stand equal</div>
+                  <div className="winner-hp">
+                    <span>CAPTAIN RED: {p1HPRemaining} HP</span>
+                    <span className="hp-separator">━</span>
+                    <span>CAPTAIN BLUE: {p2HPRemaining} HP</span>
+                  </div>
+                </>
               ) : (
-                <span className="block-indicator">BLOCKED!</span>
+                <>
+                  <div className={`winner-icon ${isUserWinner ? 'victory-icon' : 'defeat-icon'}`}>
+                    {isUserWinner ? '👑' : '💀'}
+                  </div>
+                  <div className={`winner-title ${isUserWinner ? 'victory-title' : 'defeat-title'}`}>
+                    {isUserWinner ? 'VICTORY!' : 'DEFEAT'}
+                  </div>
+                  <div className="winner-subtitle">
+                    {isPlayer1Winner ? 'CAPTAIN RED' : 'CAPTAIN BLUE'} emerges victorious
+                  </div>
+                  <div className="winner-hp">
+                    <span className={isPlayer1Winner ? 'winner-hp-text' : ''}>
+                      CAPTAIN RED: {p1HPRemaining} HP
+                    </span>
+                    <span className="hp-separator">━</span>
+                    <span className={isPlayer2Winner ? 'winner-hp-text' : ''}>
+                      CAPTAIN BLUE: {p2HPRemaining} HP
+                    </span>
+                  </div>
+                  {isUserWinner && (
+                    <div className="victory-effects">
+                      <div className="confetti">🎉</div>
+                      <div className="confetti">🎊</div>
+                      <div className="confetti">✨</div>
+                      <div className="confetti">⭐</div>
+                      <div className="confetti">🎉</div>
+                    </div>
+                  )}
+                </>
               )}
+              <button 
+                className="winner-continue-btn"
+                onClick={() => setIsPlayingCinematic(false)}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Combat Arena */}
+        <div className="combat-arena">
+          {/* Player 1 Side */}
+          <div className={`duelist duelist-left ${animationPhase === 'p1-attack' ? 'attacking' : ''} ${animationPhase === 'p1-result' && p1DamageTaken > 0 ? 'taking-damage' : ''} ${showWinner && isPlayer1Winner ? 'winner-glow' : ''} ${showWinner && isPlayer2Winner ? 'loser-fade' : ''}`}>
+            <div className="duelist-avatar">
+              <div className="avatar-portrait">🏴‍☠️</div>
+              <div className="avatar-glow"></div>
+            </div>
+            <div className="duelist-name">CAPTAIN RED</div>
+            <div className="hp-container">
+              <div className="hp-label">VITALITY</div>
+              <div className="hp-bar-cinematic">
+                <div 
+                  className="hp-fill-cinematic"
+                  style={{ width: `${(p1HPRemaining / 100) * 100}%` }}
+                >
+                  <div className="hp-shine"></div>
+                </div>
+                <div className="hp-value">{p1HPRemaining}</div>
+              </div>
             </div>
           </div>
 
-          <div className="action-result">
-            <BattleCard
-              type="attack"
-              moveId={Number(turn.player2_move.attack)}
-              isSelected={false}
-              onClick={() => {}}
-            />
-            <div className="action-arrow">→</div>
-            <BattleCard
-              type="defense"
-              moveId={Number(turn.player1_move.defense)}
-              isSelected={false}
-              onClick={() => {}}
-            />
-            <div className="damage-indicator">
-              {Number(turn.player1_damage_taken) > 0 ? (
-                <span className="damage-number">-{Number(turn.player1_damage_taken)} HP</span>
-              ) : (
-                <span className="block-indicator">BLOCKED!</span>
-              )}
+          {/* Center Stage - Move Reveals */}
+          <div className="center-stage">
+            {/* Player 1 Attack Phase */}
+            {(animationPhase === 'p1-attack' || animationPhase === 'p1-result') && (
+              <div className="move-showcase showcase-p1">
+                <div className="move-label mb-5">PLAYER 1 STRIKES</div>
+                <div className="showcased-card">
+                  <div className="card-glow-ring"></div>
+                  <BattleCard
+                    type="attack"
+                    moveId={Number(turn.player1_move.attack)}
+                    isSelected={true}
+                    onClick={() => {}}
+                  />
+                </div>
+                <div className="move-arrow">
+                  <span>→ → →</span>
+                </div>
+                <div className="showcased-card flex! space-x-2">
+                  <div className="card-glow-ring"></div>
+                  <BattleCard
+                    type="defense"
+                    moveId={Number(turn.player2_move.defense)}
+                    isSelected={true}
+                    onClick={() => {}}
+                  />
+                </div>
+                <div className="move-label mb-5">PLAYER 2 DEFENDS</div>
+              </div>
+            )}
+
+            {/* Player 1 Result */}
+            {animationPhase === 'p1-result' && (
+              <div className="result-explosion">
+                {p2DamageTaken > 0 ? (
+                  <>
+                    <div className="damage-burst">
+                      <div className="burst-ring burst-1"></div>
+                      <div className="burst-ring burst-2"></div>
+                      <div className="burst-ring burst-3"></div>
+                      <div className="damage-text">
+                        <div className="damage-amount">-{p2DamageTaken}</div>
+                        <div className="damage-label">DAMAGE</div>
+                      </div>
+                    </div>
+                    <div className="impact-flash"></div>
+                  </>
+                ) : (
+                  <div className="block-success">
+                    <div className="shield-icon">🛡️</div>
+                    <div className="block-text">BLOCKED!</div>
+                    <div className="block-sparkles">✨ ✨ ✨</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Player 2 Attack Phase */}
+            {(animationPhase === 'p2-attack' || animationPhase === 'p2-result') && (
+              <div className="move-showcase showcase-p2">
+                <div className="move-label mb-5">PLAYER 2 RETALIATES</div>
+                <div className="showcased-card">
+                  <div className="card-glow-ring"></div>
+                  <BattleCard
+                    type="attack"
+                    moveId={Number(turn.player2_move.attack)}
+                    isSelected={true}
+                    onClick={() => {}}
+                  />
+                </div>
+                <div className="move-arrow">
+                  <span>← ← ←</span>
+                </div>
+                <div className="showcased-card">
+                  <div className="card-glow-ring"></div>
+                  <BattleCard
+                    type="defense"
+                    moveId={Number(turn.player1_move.defense)}
+                    isSelected={true}
+                    onClick={() => {}}
+                  />
+                </div>
+                <div className="move-label mb-5">PLAYER 1 DEFENDS</div>
+              </div>
+            )}
+
+            {/* Player 2 Result */}
+            {animationPhase === 'p2-result' && (
+              <div className="result-explosion">
+                {p1DamageTaken > 0 ? (
+                  <>
+                    <div className="damage-burst">
+                      <div className="burst-ring burst-1"></div>
+                      <div className="burst-ring burst-2"></div>
+                      <div className="burst-ring burst-3"></div>
+                      <div className="damage-text">
+                        <div className="damage-amount">-{p1DamageTaken}</div>
+                        <div className="damage-label">DAMAGE</div>
+                      </div>
+                    </div>
+                    <div className="impact-flash"></div>
+                  </>
+                ) : (
+                  <div className="block-success">
+                    <div className="shield-icon">🛡️</div>
+                    <div className="block-text">BLOCKED!</div>
+                    <div className="block-sparkles">✨ ✨ ✨</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Round Complete */}
+            {animationPhase === 'complete' && (
+              <div className="round-complete">
+                <div className="complete-icon">⚡</div>
+                <div className="complete-text">ROUND COMPLETE</div>
+              </div>
+            )}
+          </div>
+
+          {/* Player 2 Side */}
+          <div className={`duelist duelist-right ${animationPhase === 'p2-attack' ? 'attacking' : ''} ${animationPhase === 'p2-result' && p2DamageTaken > 0 ? 'taking-damage' : ''} ${showWinner && isPlayer2Winner ? 'winner-glow' : ''} ${showWinner && isPlayer1Winner ? 'loser-fade' : ''}`}>
+            <div className="duelist-avatar">
+              <div className="avatar-portrait">🏴‍☠️</div>
+              <div className="avatar-glow"></div>
+            </div>
+            <div className="duelist-name">CAPTAIN BLUE</div>
+            <div className="hp-container">
+              <div className="hp-label">VITALITY</div>
+              <div className="hp-bar-cinematic">
+                <div 
+                  className="hp-fill-cinematic"
+                  style={{ width: `${(p2HPRemaining / 100) * 100}%` }}
+                >
+                  <div className="hp-shine"></div>
+                </div>
+                <div className="hp-value">{p2HPRemaining}</div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="cinematic-controls">
+        {/* Navigation Controls */}
+        <div className="cinematic-nav">
           <button
+            className="nav-btn nav-prev"
             onClick={() => setCurrentCinematicTurn(Math.max(0, currentCinematicTurn - 1))}
             disabled={currentCinematicTurn === 0}
           >
-            ◄◄ Previous
+            <span className="nav-icon">◄</span>
+            <span className="nav-label">Previous</span>
           </button>
-          <button onClick={() => setIsPlayingCinematic(false)}>
-            ⏸ Pause
-          </button>
+          
+          <div className="round-indicator">
+            <div className="round-dots">
+              {gamePlayback.turn_results.map((_, idx) => (
+                <div 
+                  key={idx} 
+                  className={`round-dot ${idx === currentCinematicTurn ? 'active' : ''} ${idx < currentCinematicTurn ? 'complete' : ''}`}
+                  onClick={() => setCurrentCinematicTurn(idx)}
+                />
+              ))}
+            </div>
+          </div>
+
           <button
+            className="nav-btn nav-skip"
+            onClick={() => setIsPlayingCinematic(false)}
+          >
+            <span className="nav-icon">✕</span>
+            <span className="nav-label">Exit</span>
+          </button>
+          
+          <button
+            className="nav-btn nav-next"
             onClick={() => {
               if (currentCinematicTurn < gamePlayback.turn_results.length - 1) {
                 setCurrentCinematicTurn(currentCinematicTurn + 1);
@@ -452,13 +669,16 @@ const CinematicBattlePlayback = ({
             }}
             disabled={currentCinematicTurn >= gamePlayback.turn_results.length - 1}
           >
-            Next ►►
+            <span className="nav-label">Next</span>
+            <span className="nav-icon">►</span>
           </button>
         </div>
       </div>
     </div>
   );
 };
+
+
 
 // ═══════════════════════════════════════════════════════════════════════
 // Main component
@@ -514,7 +734,7 @@ export function ClashGame({
   const [isPlayingCinematic,   setIsPlayingCinematic]   = useState(false);
   const [currentCinematicTurn, setCurrentCinematicTurn] = useState(0);
 
-  // Card selection modal state — lifted here (was incorrectly inside render body before)
+  // Card selection modal state 
   const [cardSelectionMode, setCardSelectionMode] = useState<{ turn: number; type: 'attack' | 'defense' } | null>(null);
 
   const quickstartAvailable =
@@ -1067,7 +1287,7 @@ export function ClashGame({
       <PhaseHeader phase={gamePhase} sessionId={sessionId} />
 
       {error   && <AlertBanner type="error"   message={error}   />}
-      {success && <AlertBanner type="success" message={success} />}
+      {/* {success && <AlertBanner type="success" message={success} />} */}
 
       {/* CREATE PHASE */}
       {gamePhase === 'create' && (
@@ -1248,7 +1468,7 @@ export function ClashGame({
             </>
           ) : (
             <div className="revealed-waiting">
-              <p>✓ Moves revealed! Waiting for opponent...</p>
+              <p className='text-white'>✓ Moves revealed! Waiting for opponent...</p>
             </div>
           )}
 
@@ -1265,8 +1485,8 @@ export function ClashGame({
         <div className="resolve-phase">
           <div className="resolve-announcement">
             <div className="swords-icon">⚔️</div>
-            <h3>Both players revealed!</h3>
-            <p>Either player can trigger the resolution.</p>
+            <h3 className='text-white'>Both players revealed!</h3>
+            <p className='text-white'>Either player can trigger the resolution.</p>
             <button onClick={handleResolveBattle} disabled={isBusy} className="resolve-button-main">
               {loading ? 'Resolving...' : '⚔️ Resolve Battle!'}
             </button>
@@ -1277,7 +1497,7 @@ export function ClashGame({
       {/* COMPLETE PHASE */}
       {gamePhase === 'complete' && gameState && (
         <div className="complete-phase">
-          <div className={`victory-banner ${iWon ? 'winner' : 'loser'}`}>
+          {/* <div className={`victory-banner ${iWon ? 'winner' : 'loser'}`}>
             <div className="banner-icon">{iWon ? '🏆' : '💀'}</div>
             <h3>{iWon ? 'VICTORY!' : "SENT TO DAVY JONES' LOCKER"}</h3>
             {winnerAddr && (
@@ -1285,7 +1505,7 @@ export function ClashGame({
                 Winner: {winnerAddr.slice(0, 8)}…{winnerAddr.slice(-4)}
               </p>
             )}
-          </div>
+          </div> */}
 
           {gamePlayback && !isPlayingCinematic && (
             <div className="playback-options">
@@ -1298,14 +1518,23 @@ export function ClashGame({
               >
                 ⚡ Watch Battle Unfold
               </button>
-              <button
+              {/* <button
                 className="skip-to-results-btn"
                 onClick={() => setIsPlayingCinematic(false)}
               >
                 ⏩ Skip to Results
+              </button> */}
+
+              <button
+                className="skip-to-results-btn"
+                onClick={handleStartNewGame}
+              >
+               ⚔️ Challenge Another Pirate
               </button>
             </div>
           )}
+
+         <div>
 
           {isPlayingCinematic && gamePlayback && (
             <CinematicBattlePlayback
@@ -1313,24 +1542,22 @@ export function ClashGame({
               currentCinematicTurn={currentCinematicTurn}
               setCurrentCinematicTurn={setCurrentCinematicTurn}
               setIsPlayingCinematic={setIsPlayingCinematic}
+              userAddress={userAddress}
             />
           )}
 
+          {/* <button onClick={handleStartNewGame} className="new-game-button">
+            ⚔️ Challenge Another Pirate
+          </button> */}
+         </div>
+
           {gamePlayback && !isPlayingCinematic && (
-            <div className="static-results">
-              {gamePlayback.turn_results.map((turn, idx) => (
-                <div key={idx} className="turn-result-card">
-                  <h4>Turn {Number(turn.turn) + 1} Result</h4>
-                  <p>P1: {Number(turn.player1_damage_dealt)} dmg dealt, {Number(turn.player1_hp_remaining)} HP remaining</p>
-                  <p>P2: {Number(turn.player2_damage_dealt)} dmg dealt, {Number(turn.player2_hp_remaining)} HP remaining</p>
-                </div>
-              ))}
-            </div>
+            <PirateStoryBox 
+              gamePlayback={gamePlayback} 
+              userAddress={userAddress}
+            />
           )}
 
-          <button onClick={handleStartNewGame} className="new-game-button">
-            ⚔️ Challenge Another Pirate
-          </button>
         </div>
       )}
     </div>

@@ -1,0 +1,546 @@
+/* ═══════════════════════════════════════════════════════════
+   PIRATE STORY SCROLL
+   ═══════════════════════════════════════════════════════════ */
+
+   @import url('https://fonts.googleapis.com/css2?family=Pirata+One&family=Fondamento:ital@0;1&family=UnifrakturMaguntia&display=swap');
+
+   .pirate-story-scroll {
+     position: relative;
+     max-width: 900px;
+     margin: 2rem auto;
+     background: 
+       linear-gradient(to bottom, 
+         #f4e8d0 0%,
+         #f9f1e1 10%,
+         #f4e8d0 90%,
+         #e8d5b8 100%
+       );
+     padding: 3rem 2rem;
+     border-radius: 8px;
+     box-shadow: 
+       0 10px 40px rgba(0, 0, 0, 0.3),
+       inset 0 0 80px rgba(139, 69, 19, 0.1),
+       inset 0 2px 0 rgba(255, 255, 255, 0.4);
+     position: relative;
+     animation: scrollUnfurl 1s ease-out;
+   }
+   
+   @keyframes scrollUnfurl {
+     0% {
+       opacity: 0;
+       transform: scaleY(0.1);
+       transform-origin: top center;
+     }
+     100% {
+       opacity: 1;
+       transform: scaleY(1);
+     }
+   }
+   
+   /* Aged paper texture */
+   .pirate-story-scroll::before {
+     content: '';
+     position: absolute;
+     top: 0;
+     left: 0;
+     right: 0;
+     bottom: 0;
+     background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence baseFrequency='0.9' numOctaves='4'/%3E%3CfeColorMatrix values='0 0 0 0 0.6 0 0 0 0 0.5 0 0 0 0 0.4 0 0 0 0.08 0'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.4'/%3E%3C/svg%3E");
+     pointer-events: none;
+     border-radius: 8px;
+     mix-blend-mode: multiply;
+   }
+   
+   /* Torn edges effect */
+   .pirate-story-scroll::after {
+     content: '';
+     position: absolute;
+     top: -5px;
+     left: 0;
+     right: 0;
+     height: 10px;
+     background: 
+       radial-gradient(circle at 10% 50%, transparent 3px, #f4e8d0 4px),
+       radial-gradient(circle at 30% 50%, transparent 4px, #f4e8d0 5px),
+       radial-gradient(circle at 50% 50%, transparent 3px, #f4e8d0 4px),
+       radial-gradient(circle at 70% 50%, transparent 5px, #f4e8d0 6px),
+       radial-gradient(circle at 90% 50%, transparent 4px, #f4e8d0 5px);
+     background-size: 20% 100%;
+     background-repeat: repeat-x;
+   }
+   
+   /* ═══ SCROLL HEADER ═══ */
+   
+   .scroll-header {
+     text-align: center;
+     margin-bottom: 3rem;
+     position: relative;
+     padding-bottom: 2rem;
+     border-bottom: 3px double #8b4513;
+   }
+   
+   .scroll-seal {
+     font-size: 4rem;
+     margin-bottom: 1rem;
+     filter: drop-shadow(2px 4px 6px rgba(0, 0, 0, 0.3));
+     animation: sealSway 3s ease-in-out infinite;
+   }
+   
+   @keyframes sealSway {
+     0%, 100% { transform: rotate(-3deg); }
+     50% { transform: rotate(3deg); }
+   }
+   
+   .scroll-title {
+     font-family: 'Pirata One', cursive;
+     font-size: 3rem;
+     color: #3a1f0f;
+     text-shadow: 2px 2px 0 rgba(139, 69, 19, 0.2);
+     margin-bottom: 0.5rem;
+     letter-spacing: 0.05em;
+   }
+   
+   .scroll-subtitle {
+     font-family: 'Fondamento', cursive;
+     font-style: italic;
+     font-size: 1.1rem;
+     color: #6b4423;
+     letter-spacing: 0.05em;
+   }
+   
+   /* ═══ STORY CONTENT ═══ */
+   
+   .story-content {
+     position: relative;
+     z-index: 1;
+   }
+   
+   /* ═══ STORY CHAPTERS ═══ */
+   
+   .story-chapter {
+     margin-bottom: 3rem;
+     padding: 2rem;
+     background: rgba(255, 255, 255, 0.3);
+     border: 2px solid rgba(139, 69, 19, 0.2);
+     border-radius: 8px;
+     box-shadow: 
+       0 4px 15px rgba(0, 0, 0, 0.1),
+       inset 0 1px 0 rgba(255, 255, 255, 0.5);
+     animation: chapterFadeIn 0.8s ease-out backwards;
+     animation-delay: calc(var(--chapter-index, 0) * 0.3s);
+   }
+   
+   @keyframes chapterFadeIn {
+     0% {
+       opacity: 0;
+       transform: translateY(20px);
+     }
+     100% {
+       opacity: 1;
+       transform: translateY(0);
+     }
+   }
+   
+   .story-chapter:nth-child(1) { --chapter-index: 0; }
+   .story-chapter:nth-child(2) { --chapter-index: 1; }
+   .story-chapter:nth-child(3) { --chapter-index: 2; }
+   
+   .chapter-header {
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     gap: 1rem;
+     margin-bottom: 1.5rem;
+     padding-bottom: 1rem;
+     border-bottom: 2px solid rgba(139, 69, 19, 0.3);
+   }
+   
+   .chapter-number {
+     font-family: 'UnifrakturMaguntia', cursive;
+     font-size: 1.8rem;
+     color: #3a1f0f;
+     text-shadow: 1px 1px 2px rgba(139, 69, 19, 0.3);
+   }
+   
+   .chapter-ornament {
+     font-size: 1.5rem;
+     color: #8b4513;
+     animation: ornamentSpin 4s ease-in-out infinite;
+   }
+   
+   @keyframes ornamentSpin {
+     0%, 100% { transform: rotate(0deg); }
+     25% { transform: rotate(10deg); }
+     75% { transform: rotate(-10deg); }
+   }
+   
+   .chapter-intro {
+     font-family: 'Fondamento', cursive;
+     font-style: italic;
+     font-size: 1.2rem;
+     color: #6b4423;
+     text-align: center;
+     margin-bottom: 2rem;
+     padding: 1rem;
+     background: rgba(139, 69, 19, 0.05);
+     border-radius: 6px;
+     border-left: 4px solid #8b4513;
+     line-height: 1.6;
+   }
+   
+   /* ═══ BATTLE NARRATIVE ═══ */
+   
+   .battle-narrative {
+     margin: 2rem 0;
+   }
+   
+   .narrative-block {
+     display: flex;
+     gap: 1rem;
+     margin-bottom: 1.5rem;
+     padding: 1.5rem;
+     background: rgba(255, 255, 255, 0.5);
+     border-radius: 6px;
+     border-left: 3px solid #d4a574;
+     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+     animation: narrativeSlideIn 0.6s ease-out backwards;
+   }
+   
+   @keyframes narrativeSlideIn {
+     0% {
+       opacity: 0;
+       transform: translateX(-20px);
+     }
+     100% {
+       opacity: 1;
+       transform: translateX(0);
+     }
+   }
+   
+   .narrative-block:nth-child(2) {
+     animation-delay: 0.3s;
+   }
+   
+   .narrator-icon {
+     font-size: 2rem;
+     flex-shrink: 0;
+     filter: drop-shadow(1px 2px 3px rgba(0, 0, 0, 0.2));
+   }
+   
+   .narrative-text {
+     font-family: 'Fondamento', serif;
+     font-size: 1.1rem;
+     line-height: 1.8;
+     color: #3a1f0f;
+     margin: 0;
+     text-shadow: 0.5px 0.5px 1px rgba(139, 69, 19, 0.1);
+   }
+   
+   .captain-name {
+     font-family: 'Pirata One', cursive;
+     font-size: 1.2em;
+     color: #8b0000;
+     text-shadow: 1px 1px 2px rgba(139, 0, 0, 0.2);
+     letter-spacing: 0.02em;
+   }
+   
+   .move-name {
+     font-weight: 700;
+     color: #1a5490;
+     background: linear-gradient(to bottom, rgba(26, 84, 144, 0.1), rgba(26, 84, 144, 0.05));
+     padding: 0.1em 0.3em;
+     border-radius: 3px;
+   }
+   
+   .damage-dealt {
+     font-weight: 900;
+     color: #dc143c;
+     font-size: 1.1em;
+     text-shadow: 0 0 8px rgba(220, 20, 60, 0.3);
+   }
+   
+   .hp-remaining {
+     font-weight: 900;
+     color: #228b22;
+     font-size: 1.1em;
+   }
+   
+   .block-success {
+     font-weight: 700;
+     color: #20b2aa;
+     font-style: italic;
+     text-shadow: 0 0 8px rgba(32, 178, 170, 0.2);
+   }
+   
+   /* ═══ CHAPTER SUMMARY (HP BARS) ═══ */
+   
+   .chapter-summary {
+     margin-top: 2rem;
+     padding-top: 1.5rem;
+     border-top: 2px dashed rgba(139, 69, 19, 0.3);
+   }
+   
+   .summary-hp {
+     display: flex;
+     align-items: center;
+     gap: 1.5rem;
+     justify-content: center;
+   }
+   
+   .hp-bar-container {
+     flex: 1;
+     max-width: 300px;
+   }
+   
+   .captain-label {
+     display: block;
+     font-family: 'Pirata One', cursive;
+     font-size: 1.1rem;
+     color: #3a1f0f;
+     margin-bottom: 0.5rem;
+     text-align: center;
+   }
+   
+   .story-hp-bar {
+     position: relative;
+     height: 32px;
+     background: rgba(139, 69, 19, 0.2);
+     border: 2px solid #8b4513;
+     border-radius: 6px;
+     overflow: hidden;
+     box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.2);
+   }
+   
+   .story-hp-fill {
+     position: relative;
+     height: 100%;
+     transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+     display: flex;
+     align-items: center;
+     justify-content: flex-end;
+     padding-right: 8px;
+     box-shadow: inset 0 2px 8px rgba(255, 255, 255, 0.3);
+   }
+   
+   .story-hp-fill.red-crew {
+     background: linear-gradient(135deg, #8b0000, #dc143c, #ff6347);
+   }
+   
+   .story-hp-fill.blue-crew {
+     background: linear-gradient(135deg, #1a5490, #4682b4, #87ceeb);
+   }
+   
+   .hp-text {
+     font-family: 'Pirata One', cursive;
+     font-size: 1.1rem;
+     font-weight: 900;
+     color: white;
+     text-shadow: 
+       1px 1px 2px rgba(0, 0, 0, 0.8),
+       0 0 10px rgba(0, 0, 0, 0.5);
+     z-index: 2;
+   }
+   
+   .vs-divider-small {
+     font-size: 1.8rem;
+     color: #8b4513;
+     animation: anchorBob 2s ease-in-out infinite;
+   }
+   
+   @keyframes anchorBob {
+     0%, 100% { transform: translateY(0) rotate(0deg); }
+     50% { transform: translateY(-5px) rotate(10deg); }
+   }
+   
+   /* ═══ STORY EPILOGUE ═══ */
+   
+   .story-epilogue {
+     margin-top: 3rem;
+     padding: 2.5rem;
+     background: rgba(139, 69, 19, 0.08);
+     border: 3px double #8b4513;
+     border-radius: 8px;
+     box-shadow: 
+       0 6px 20px rgba(0, 0, 0, 0.15),
+       inset 0 2px 0 rgba(255, 255, 255, 0.3);
+     animation: epilogueFadeIn 1s ease-out 0.6s backwards;
+   }
+   
+   @keyframes epilogueFadeIn {
+     0% {
+       opacity: 0;
+       transform: scale(0.95);
+     }
+     100% {
+       opacity: 1;
+       transform: scale(1);
+     }
+   }
+   
+   .epilogue-divider {
+     text-align: center;
+     font-size: 1.5rem;
+     color: #8b4513;
+     margin-bottom: 1.5rem;
+   }
+   
+   .epilogue-divider span {
+     display: inline-block;
+     animation: swordsCross 2s ease-in-out infinite;
+   }
+   
+   @keyframes swordsCross {
+     0%, 100% { transform: scale(1); }
+     50% { transform: scale(1.1); }
+   }
+   
+   .epilogue-text {
+     font-family: 'Fondamento', serif;
+     font-size: 1.15rem;
+     line-height: 1.9;
+     color: #3a1f0f;
+     text-align: center;
+   }
+   
+   .outcome-main {
+     margin-bottom: 1.5rem;
+     font-size: 1.2rem;
+     font-weight: 600;
+   }
+   
+   .victor-name {
+     font-family: 'Pirata One', cursive;
+     font-size: 1.3em;
+     color: #ffd700;
+     text-shadow: 
+       2px 2px 0 #8b4513,
+       0 0 15px rgba(255, 215, 0, 0.5);
+     letter-spacing: 0.02em;
+   }
+   
+   .outcome-flavor {
+     font-style: italic;
+     color: #6b4423;
+     margin: 0;
+   }
+   
+   .epilogue-signature {
+     display: flex;
+     align-items: center;
+     justify-content: center;
+     gap: 1rem;
+     margin-top: 2rem;
+     padding-top: 1.5rem;
+     border-top: 1px solid rgba(139, 69, 19, 0.3);
+     font-family: 'Fondamento', cursive;
+     font-style: italic;
+     font-size: 0.95rem;
+     color: #6b4423;
+   }
+   
+   .signature-seal {
+     font-size: 1.5rem;
+     animation: sealGlow 3s ease-in-out infinite;
+   }
+   
+   @keyframes sealGlow {
+     0%, 100% { 
+       filter: drop-shadow(0 0 5px rgba(139, 69, 19, 0.3));
+     }
+     50% { 
+       filter: drop-shadow(0 0 10px rgba(139, 69, 19, 0.6));
+     }
+   }
+   
+   /* ═══ SCROLL FOOTER ═══ */
+   
+   .scroll-footer {
+     margin-top: 3rem;
+     text-align: center;
+   }
+   
+   .scroll-aged-mark {
+     width: 100px;
+     height: 100px;
+     margin: 0 auto;
+     background: radial-gradient(circle, rgba(139, 69, 19, 0.2) 0%, transparent 70%);
+     border-radius: 50%;
+     position: relative;
+   }
+   
+   .scroll-aged-mark::before {
+     content: '⚓';
+     position: absolute;
+     top: 50%;
+     left: 50%;
+     transform: translate(-50%, -50%);
+     font-size: 3rem;
+     color: rgba(139, 69, 19, 0.3);
+   }
+   
+   /* ═══ RESPONSIVE ═══ */
+   
+   @media (max-width: 768px) {
+     .pirate-story-scroll {
+       padding: 2rem 1rem;
+     }
+   
+     .scroll-title {
+       font-size: 2rem;
+     }
+   
+     .story-chapter {
+       padding: 1.5rem 1rem;
+     }
+   
+     .narrative-block {
+       flex-direction: column;
+       align-items: center;
+       text-align: center;
+     }
+   
+     .narrative-text {
+       font-size: 1rem;
+     }
+   
+     .summary-hp {
+       flex-direction: column;
+       gap: 1rem;
+     }
+   
+     .hp-bar-container {
+       width: 100%;
+       max-width: 100%;
+     }
+   
+     .epilogue-signature {
+       flex-direction: column;
+       gap: 0.5rem;
+     }
+   }
+   
+   /* ═══ COFFEE STAIN EFFECTS (Optional) ═══ */
+   
+   .story-chapter:nth-child(2)::before {
+     content: '';
+     position: absolute;
+     top: 10px;
+     right: 20px;
+     width: 60px;
+     height: 60px;
+     background: radial-gradient(circle, rgba(101, 67, 33, 0.2) 0%, transparent 70%);
+     border-radius: 50%;
+     pointer-events: none;
+   }
+   
+   .story-chapter:nth-child(3)::after {
+     content: '';
+     position: absolute;
+     bottom: 15px;
+     left: 30px;
+     width: 40px;
+     height: 40px;
+     background: radial-gradient(circle, rgba(101, 67, 33, 0.15) 0%, transparent 70%);
+     border-radius: 50%;
+     pointer-events: none;
+   }

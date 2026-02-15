@@ -3,6 +3,9 @@ import { WalletSwitcher } from './WalletSwitcher';
 import { PirateScene } from './Piratescene';
 import './Layout.css';
 
+import { WalletStandalone } from './WalletStandalone';
+import './LayoutStandalone.css';
+
 interface LayoutProps {
   title?: string;
   subtitle?: string;
@@ -86,6 +89,7 @@ export function Layout({ title, subtitle, children }: LayoutProps) {
             </div>
             <div className="wallet-container">
               <WalletSwitcher />
+              {/* <WalletStandalone /> */}
             </div>
           </div>
         </header>

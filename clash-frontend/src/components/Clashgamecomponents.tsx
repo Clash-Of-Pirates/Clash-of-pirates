@@ -1,6 +1,5 @@
 /**
  * ClashGameComponents.tsx
- * All reusable UI building blocks for Clash of Gladiators.
  */
 
 import type { Game, Move, BattleResult, GamePlayback, DetailedTurnResult } from '@/games/clash/bindings';
@@ -150,7 +149,7 @@ export function PlayerStatusCard({ label, address, points, isYou, committed, rev
         )}
       </div>
       <div className="font-mono text-xs text-gray-600 mb-1 truncate">{shortAddress(address)}</div>
-      <div className="text-sm font-bold text-gray-800 mb-3">{formatPoints(points)} pts wagered</div>
+      {/* <div className="text-sm font-bold text-gray-800 mb-3">{formatPoints(points)} pts wagered</div> */}
 
       <div className="flex gap-2">
         <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wide border ${
