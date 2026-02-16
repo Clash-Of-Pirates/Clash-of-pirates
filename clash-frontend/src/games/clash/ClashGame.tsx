@@ -13,6 +13,9 @@ import { NoirService } from '@/utils/NoirService';
 import type { Game, Move, GamePlayback } from './bindings';
 import { Attack, Defense } from './bindings';
 import { PirateStoryBox } from '@/components/PirateStoryBox';
+import fireball from '@/components/sound/fireball.wav'
+import lightning from '@/components/sound/lightning.wav'
+import slash from '@/components/sound/slash.mp3'
 import '@/components/PirateStoryBox.css';
 
 import {
@@ -347,6 +350,19 @@ const CinematicBattlePlayback = ({
   const [animationPhase, setAnimationPhase] = useState<'intro' | 'p1-attack' | 'p1-result' | 'p2-attack' | 'p2-result' | 'complete'>('intro');
   const [showWinner, setShowWinner] = useState(false);
   const turn = gamePlayback.turn_results[currentCinematicTurn];
+
+  const playAttackSound = (attack: Attack) => {
+    const soundMap = {
+      [Attack.Slash]: slash,
+      [Attack.Fireball]: fireball,
+      [Attack.Lightning]: lightning,
+    };
+    
+    const audio = new Audio(soundMap[attack]);
+    audio.volume = 0.7;
+    audio.play().catch(err => console.warn('Sound play failed:', err));
+  };
+
   
   useEffect(() => {
     // Reset animation when turn changes
@@ -361,9 +377,19 @@ const CinematicBattlePlayback = ({
       { phase: 'p2-result', delay: 7500 },
       { phase: 'complete', delay: 9000 },
     ];
+
     
     const timeouts = timeline.map(({ phase, delay }) =>
-      setTimeout(() => setAnimationPhase(phase as any), delay)
+      setTimeout(() => {
+        setAnimationPhase(phase as any);
+        
+        // Play attack sounds
+        if (phase === 'p1-attack') {
+          playAttackSound(Number(turn.player1_move.attack) as Attack);
+        } else if (phase === 'p2-attack') {
+          playAttackSound(Number(turn.player2_move.attack) as Attack);
+        }
+      }, delay)
     );
     
     // Show winner after last turn completes
