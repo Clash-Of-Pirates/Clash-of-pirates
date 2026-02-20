@@ -2350,3 +2350,46 @@
   border-radius: 4px;
   font-family: monospace;
 }
+
+.desktop-required-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at center, #0f172a, #020617);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  padding: 20px;
+}
+
+.desktop-required-card {
+  max-width: 420px;
+  text-align: center;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 40px 30px;
+  border-radius: 20px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  color: white;
+}
+
+.desktop-icon {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.desktop-required-card h2 {
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+
+.desktop-required-card p {
+  opacity: 0.8;
+  margin-bottom: 16px;
+}
+
+.desktop-hint {
+  font-size: 14px;
+  opacity: 0.6;
+}
