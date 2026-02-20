@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { WalletSwitcher } from './WalletSwitcher';
-import { PirateScene } from './Piratescene';
+import { PirateScene } from './PirateScene';
 import './Layout.css';
 
 import { WalletStandalone } from './WalletStandalone';
