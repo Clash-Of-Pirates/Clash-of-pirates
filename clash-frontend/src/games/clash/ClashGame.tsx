@@ -8,7 +8,7 @@ import { requestCache, createCacheKey } from '@/utils/requestCache';
 import { useWallet } from '@/hooks/useWallet';
 import { CLASH_CONTRACT } from '@/utils/constants';
 import { getFundedSimulationSourceAddress } from '@/utils/simulationUtils';
-import { devWalletService, DevWalletService } from '@/services/devWalletService';
+// import { devWalletService, DevWalletService } from '@/services/devWalletService';
 import { NoirService } from '@/utils/NoirService';
 import type { Game, Move, GamePlayback } from './bindings';
 import { Attack, Defense } from './bindings';
@@ -29,9 +29,36 @@ import {
 } from '@/components/Clashgamecomponents';
 import '@/components/Clashgameenhanced.css';
 
+import { loadSessionKey, loadAuthUser } from '@/services/passkeyService';
+import { Keypair } from '@stellar/stellar-sdk';
+
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
+
+function getPasskeySigner() {
+  const sk = loadSessionKey();
+  if (!sk) throw new Error('No active session — please log in again');
+  
+  const keypair = Keypair.fromSecret(sk.secretKey);
+  
+  return {
+    signTransaction: async (txXdr: string) => ({ signedTxXdr: txXdr }),
+    signAuthEntry: async (entryXdr: string) => {
+      const { authorizeEntry, xdr, rpc: SorobanRpc } = await import('@stellar/stellar-sdk');
+      const { RPC_URL, NETWORK_PASSPHRASE } = await import('@/utils/constants');
+      const { calculateValidUntilLedger } = await import('@/utils/ledgerUtils');
+      
+      const rpcServer = new SorobanRpc.Server(RPC_URL, { allowHttp: RPC_URL.startsWith('http://') });
+      const validUntil = await calculateValidUntilLedger(RPC_URL, 30);
+      
+      const entry  = xdr.SorobanAuthorizationEntry.fromXDR(entryXdr, 'base64');
+      const signed = await authorizeEntry(entry, keypair, validUntil, NETWORK_PASSPHRASE);
+      return { signedAuthEntry: signed.toXDR('base64') };
+    },
+  };
+}
+
 
 const createRandomSessionId = (): number => {
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
@@ -729,7 +756,7 @@ export function ClashGame({
 
   const [player1Address,       setPlayer1Address]       = useState(userAddress);
   const [player1Points,        setPlayer1Points]        = useState(DEFAULT_POINTS);
-  const [createMode,           setCreateMode]           = useState<CreateMode>('create');
+  const [createMode, setCreateMode] = useState<CreateMode>('challenge');
   const [exportedAuthEntryXDR, setExportedAuthEntryXDR] = useState<string | null>(null);
   const [importAuthEntryXDR,   setImportAuthEntryXDR]   = useState('');
   const [importSessionId,      setImportSessionId]      = useState('');
@@ -763,11 +790,13 @@ export function ClashGame({
   // Card selection modal state 
   const [cardSelectionMode, setCardSelectionMode] = useState<{ turn: number; type: 'attack' | 'defense' } | null>(null);
 
-  const quickstartAvailable =
-    walletType === 'dev' &&
-    DevWalletService.isDevModeAvailable() &&
-    DevWalletService.isPlayerAvailable(1) &&
-    DevWalletService.isPlayerAvailable(2);
+  // const quickstartAvailable =
+  //   walletType === 'dev' &&
+  //   DevWalletService.isDevModeAvailable() &&
+  //   DevWalletService.isPlayerAvailable(1) &&
+  //   DevWalletService.isPlayerAvailable(2);
+
+  const quickstartAvailable = false
 
   // ─── Effects ───────────────────────────────────────────────
 
@@ -785,7 +814,7 @@ export function ClashGame({
   }, [userAddress]);
 
   useEffect(() => {
-    if (createMode === 'import' && !importPlayer2Points.trim()) setImportPlayer2Points(DEFAULT_POINTS);
+    if (createMode === 'join' && !importPlayer2Points.trim()) setImportPlayer2Points(DEFAULT_POINTS);
   }, [createMode]);
 
   useEffect(() => {
@@ -807,16 +836,16 @@ export function ClashGame({
         clashService.getGame(sid).then(game => {
           if (game) { setGameState(game); setGamePhase('commit'); setSessionId(sid); }
           else {
-            setCreateMode('import');
+            setCreateMode('join');
             setImportAuthEntryXDR(initialXDR);
             setImportSessionId(sid.toString());
             setImportPlayer1(parsed.player1);
             setImportPlayer1Points((Number(parsed.player1Points) / 10_000_000).toString());
             setImportPlayer2Points('0.1');
           }
-        }).catch(() => { setCreateMode('import'); setImportAuthEntryXDR(initialXDR); setImportPlayer2Points('0.1'); });
+        }).catch(() => { setCreateMode('join'); setImportAuthEntryXDR(initialXDR); setImportPlayer2Points('0.1'); });
       } catch {
-        setCreateMode('import'); setImportAuthEntryXDR(initialXDR); setImportPlayer2Points('0.1');
+        setCreateMode('join'); setImportAuthEntryXDR(initialXDR); setImportPlayer2Points('0.1');
       }
       return;
     }
@@ -832,16 +861,16 @@ export function ClashGame({
         clashService.getGame(sid).then(game => {
           if (game) { setGameState(game); setGamePhase('commit'); setSessionId(sid); }
           else {
-            setCreateMode('import');
+            setCreateMode('join');
             setImportAuthEntryXDR(authEntry);
             setImportSessionId(sid.toString());
             setImportPlayer1(parsed.player1);
             setImportPlayer1Points((Number(parsed.player1Points) / 10_000_000).toString());
             setImportPlayer2Points('0.1');
           }
-        }).catch(() => { setCreateMode('import'); setImportAuthEntryXDR(authEntry); setImportPlayer2Points('0.1'); });
+        }).catch(() => { setCreateMode('join'); setImportAuthEntryXDR(authEntry); setImportPlayer2Points('0.1'); });
       } catch {
-        setCreateMode('import'); setImportAuthEntryXDR(authEntry); setImportPlayer2Points('0.1');
+        setCreateMode('join'); setImportAuthEntryXDR(authEntry); setImportPlayer2Points('0.1');
       }
     } else if (urlSession) {
       setCreateMode('load'); setLoadSessionId(urlSession);
@@ -851,7 +880,7 @@ export function ClashGame({
   }, [initialXDR, initialSessionId]);
 
   useEffect(() => {
-    if (createMode !== 'import' || !importAuthEntryXDR.trim()) {
+    if (createMode !== 'join' || !importAuthEntryXDR.trim()) {
       if (!importAuthEntryXDR.trim()) {
         setXdrParsing(false); setXdrParseError(null); setXdrParseSuccess(false);
         setImportSessionId(''); setImportPlayer1(''); setImportPlayer1Points('');
@@ -983,7 +1012,7 @@ export function ClashGame({
     setHasCommitted(false); setHasRevealed(false);
     setLoading(false); setQuickstartLoading(false);
     setError(null); setSuccess(null);
-    setCreateMode('create');
+    setCreateMode('challenge');
     setExportedAuthEntryXDR(null);
     setImportAuthEntryXDR(''); setImportSessionId(''); setImportPlayer1('');
     setImportPlayer1Points(''); setImportPlayer2Points(DEFAULT_POINTS);
@@ -1105,52 +1134,57 @@ export function ClashGame({
     });
   };
 
-  const handleQuickStart = async () => {
-    await runAction(async () => {
-      try {
-        setQuickstartLoading(true); setError(null); setSuccess(null);
-        if (walletType !== 'dev') throw new Error('Quickstart only works with dev wallets');
-        if (!DevWalletService.isDevModeAvailable() ||
-            !DevWalletService.isPlayerAvailable(1) ||
-            !DevWalletService.isPlayerAvailable(2)) {
-          throw new Error('Quickstart requires both dev wallets. Run "bun run setup"');
-        }
-        const p1Points = parsePoints(player1Points);
-        if (!p1Points || p1Points <= 0n) throw new Error('Enter a valid points amount');
+  // const handleQuickStart = async () => {
+  //   await runAction(async () => {
+  //     try {
+  //       setQuickstartLoading(true); setError(null); setSuccess(null);
+  //       if (walletType !== 'dev') throw new Error('Quickstart only works with dev wallets');
+  //       if (!DevWalletService.isDevModeAvailable() ||
+  //           !DevWalletService.isPlayerAvailable(1) ||
+  //           !DevWalletService.isPlayerAvailable(2)) {
+  //         throw new Error('Quickstart requires both dev wallets. Run "bun run setup"');
+  //       }
+  //       const p1Points = parsePoints(player1Points);
+  //       if (!p1Points || p1Points <= 0n) throw new Error('Enter a valid points amount');
 
-        const originalPlayer = devWalletService.getCurrentPlayer();
-        let p1Addr = '', p2Addr = '';
-        let p1Signer: ReturnType<typeof devWalletService.getSigner> | null = null;
-        let p2Signer: ReturnType<typeof devWalletService.getSigner> | null = null;
+  //       const originalPlayer = devWalletService.getCurrentPlayer();
+  //       let p1Addr = '', p2Addr = '';
+  //       let p1Signer: ReturnType<typeof devWalletService.getSigner> | null = null;
+  //       let p2Signer: ReturnType<typeof devWalletService.getSigner> | null = null;
 
-        try {
-          await devWalletService.initPlayer(1);
-          p1Addr = devWalletService.getPublicKey(); p1Signer = devWalletService.getSigner();
-          await devWalletService.initPlayer(2);
-          p2Addr = devWalletService.getPublicKey(); p2Signer = devWalletService.getSigner();
-        } finally {
-          if (originalPlayer) await devWalletService.initPlayer(originalPlayer);
-        }
-        if (!p1Signer || !p2Signer) throw new Error('Failed to init dev signers');
-        if (p1Addr === p2Addr) throw new Error('Quickstart requires two different dev wallets');
+  //       try {
+  //         await devWalletService.initPlayer(1);
+  //         p1Addr = devWalletService.getPublicKey(); p1Signer = devWalletService.getSigner();
+  //         await devWalletService.initPlayer(2);
+  //         p2Addr = devWalletService.getPublicKey(); p2Signer = devWalletService.getSigner();
+  //       } finally {
+  //         if (originalPlayer) await devWalletService.initPlayer(originalPlayer);
+  //       }
+  //       if (!p1Signer || !p2Signer) throw new Error('Failed to init dev signers');
+  //       if (p1Addr === p2Addr) throw new Error('Quickstart requires two different dev wallets');
 
-        const qsid = createRandomSessionId();
-        setSessionId(qsid); setPlayer1Address(p1Addr);
+  //       const qsid = createRandomSessionId();
+  //       setSessionId(qsid); setPlayer1Address(p1Addr);
 
-        const placeholder = await getFundedSimulationSourceAddress([p1Addr, p2Addr]);
-        const authXDR   = await clashService.prepareStartGame(qsid, p1Addr, placeholder, p1Points, p1Points, p1Signer);
-        const signedXDR = await clashService.importAndSignAuthEntry(authXDR, p2Addr, p1Points, p2Signer);
-        await clashService.finalizeStartGame(signedXDR, p2Addr, p2Signer);
+  //       const placeholder = await getFundedSimulationSourceAddress([p1Addr, p2Addr]);
+  //       const authXDR   = await clashService.prepareStartGame(qsid, p1Addr, placeholder, p1Points, p1Points, p1Signer);
+  //       const signedXDR = await clashService.importAndSignAuthEntry(authXDR, p2Addr, p1Points, p2Signer);
+  //       await clashService.finalizeStartGame(signedXDR, p2Addr, p2Signer);
 
-        try { const game = await clashService.getGame(qsid); if (game) setGameState(game); } catch { /* ok */ }
-        setGamePhase('commit');
-        onStandingsRefresh();
-        setSuccess('Quickstart complete! Plan your strategy.');
-        setTimeout(() => setSuccess(null), 3000);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Quickstart failed');
-      } finally { setQuickstartLoading(false); }
-    });
+  //       try { const game = await clashService.getGame(qsid); if (game) setGameState(game); } catch { /* ok */ }
+  //       setGamePhase('commit');
+  //       onStandingsRefresh();
+  //       setSuccess('Quickstart complete! Plan your strategy.');
+  //       setTimeout(() => setSuccess(null), 3000);
+  //     } catch (err) {
+  //       setError(err instanceof Error ? err.message : 'Quickstart failed');
+  //     } finally { setQuickstartLoading(false); }
+  //   });
+  // };
+
+  const handleSendChallenge = async (targetAddress: string, points: bigint) => {
+    const signer = getPasskeySigner();
+    await clashService.sendChallenge(userAddress, targetAddress, points, signer);
   };
 
   const handleCommitMoves = async () => {
@@ -1317,48 +1351,38 @@ export function ClashGame({
 
       {/* CREATE PHASE */}
       {gamePhase === 'create' && (
-        <CreateGamePanel
-          createMode={createMode}
-          setCreateMode={mode => {
-            setCreateMode(mode);
-            setExportedAuthEntryXDR(null);
-            if (mode !== 'import') { setImportAuthEntryXDR(''); setImportSessionId(''); setImportPlayer1(''); setImportPlayer1Points(''); setImportPlayer2Points(DEFAULT_POINTS); }
-            if (mode !== 'load')   setLoadSessionId('');
-          }}
-          player1Address={player1Address}
-          setPlayer1Address={setPlayer1Address}
-          player1Points={player1Points}
-          setPlayer1Points={setPlayer1Points}
-          availablePoints={availablePoints}
-          sessionId={sessionId}
-          exportedAuthEntryXDR={exportedAuthEntryXDR}
-          authEntryCopied={authEntryCopied}
-          shareUrlCopied={shareUrlCopied}
-          onPrepareTransaction={handlePrepareTransaction}
-          onCopyAuthEntry={copyAuthEntry}
-          onCopyShareUrl={copyShareUrlWithAuth}
-          importAuthEntryXDR={importAuthEntryXDR}
-          setImportAuthEntryXDR={setImportAuthEntryXDR}
-          importSessionId={importSessionId}
-          importPlayer1={importPlayer1}
-          importPlayer1Points={importPlayer1Points}
-          importPlayer2Points={importPlayer2Points}
-          setImportPlayer2Points={setImportPlayer2Points}
-          xdrParsing={xdrParsing}
-          xdrParseError={xdrParseError}
-          xdrParseSuccess={xdrParseSuccess}
-          userAddress={userAddress}
-          onImportTransaction={handleImportTransaction}
-          loadSessionId={loadSessionId}
-          setLoadSessionId={setLoadSessionId}
-          onLoadGame={handleLoadGame}
-          onCopyLoadShareUrl={copyShareUrlWithSession}
-          quickstartAvailable={quickstartAvailable}
-          quickstartLoading={quickstartLoading}
-          onQuickStart={handleQuickStart}
-          loading={loading}
-          isBusy={isBusy}
-        />
+       <CreateGamePanel
+       createMode={createMode}
+       setCreateMode={mode => {
+         setCreateMode(mode);
+         setExportedAuthEntryXDR(null);
+         if (mode !== 'join') {
+           setImportAuthEntryXDR(''); setImportSessionId('');
+           setImportPlayer1(''); setImportPlayer1Points('');
+           setImportPlayer2Points(DEFAULT_POINTS);
+         }
+         if (mode !== 'load') setLoadSessionId('');
+       }}
+       userAddress={userAddress}
+       availablePoints={availablePoints}
+       importAuthEntryXDR={importAuthEntryXDR}
+       setImportAuthEntryXDR={setImportAuthEntryXDR}
+       importSessionId={importSessionId}
+       importPlayer1={importPlayer1}
+       importPlayer1Points={importPlayer1Points}
+       importPlayer2Points={importPlayer2Points}
+       setImportPlayer2Points={setImportPlayer2Points}
+       xdrParsing={xdrParsing}
+       xdrParseError={xdrParseError}
+       xdrParseSuccess={xdrParseSuccess}
+       onImportTransaction={handleImportTransaction}
+       loadSessionId={loadSessionId}
+       setLoadSessionId={setLoadSessionId}
+       onLoadGame={handleLoadGame}
+       onSendChallenge={handleSendChallenge}
+       loading={loading}
+       isBusy={isBusy}
+     />
       )}
 
       {/* COMMIT PHASE */}

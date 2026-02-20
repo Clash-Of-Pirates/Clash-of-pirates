@@ -2,6 +2,18 @@
 # yarn lockfile v1
 
 
+"@actions/exec@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@actions/exec/-/exec-1.1.1.tgz#2e43f28c54022537172819a7cf886c844221a611"
+  integrity sha512-+sCcHHbVdk93a0XT19ECtO/gIXoxvdsgQLzb2fE2/5sIZmWQuluYyjPQtrtTHdU1YzTZ7bAPN4sITq2xi1679w==
+  dependencies:
+    "@actions/io" "^1.0.1"
+
+"@actions/io@^1.0.1":
+  version "1.1.3"
+  resolved "https://registry.yarnpkg.com/@actions/io/-/io-1.1.3.tgz#4cdb6254da7962b07473ff5c335f3da485d94d71"
+  integrity sha512-wi9JjgKLYS7U/z8PPbco+PvTb/nRWjeoFlJ1Qer83k/3C5PHQi28hiVdeE2kHXmIL99mQFawx8qt/JPjZilJ8Q==
+
 "@adraffy/ens-normalize@^1.11.0":
   version "1.11.1"
   resolved "https://registry.yarnpkg.com/@adraffy/ens-normalize/-/ens-normalize-1.11.1.tgz#6c2d657d4b2dfb37f8ea811dcb3e60843d4ac24a"
@@ -865,6 +877,23 @@
   resolved "https://registry.yarnpkg.com/@noir-lang/types/-/types-1.0.0-beta.9.tgz#0fdc393cc02fb536b7c958ea14282523edaaca30"
   integrity sha512-2KB4uSUUHjDZzrUY8CIRyaIS4Q9d0s1T9bwabw1rysSBICDkgKOdVKkG0szaCFbmeDNQ3kqanPjqBj7IEEHD7A==
 
+"@openzeppelin/relayer-plugin-channels@^0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/relayer-plugin-channels/-/relayer-plugin-channels-0.5.0.tgz#a5bb8180a735a8223b741c049a6884a39b78988f"
+  integrity sha512-mn8TklTFwwqKVVOjYQtJGGX/8IKJwg4hbwfAsz7kvb5L5EhjJzwCjgfT84TL6ZVmHb7DoQ6h2lPgNussDiHy5g==
+  dependencies:
+    "@actions/exec" "^1.1.1"
+    "@openzeppelin/relayer-sdk" "^1.8.0"
+    "@stellar/stellar-sdk" "^14.4.0"
+    axios "^1.13.2"
+
+"@openzeppelin/relayer-sdk@^1.8.0":
+  version "1.10.0"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/relayer-sdk/-/relayer-sdk-1.10.0.tgz#35e67230601419688a1e58081851f8cdb98aec6f"
+  integrity sha512-C7v4C63VnFR4keISicpcDf4Ix646sa1OdokzddFeSPEGlJIY2b/XJ9sIWiXOBVJVGzbB+RdX3/fbkygAPhcVNw==
+  dependencies:
+    axios "^1.7.7"
+
 "@phosphor-icons/webcomponents@2.1.5":
   version "2.1.5"
   resolved "https://registry.yarnpkg.com/@phosphor-icons/webcomponents/-/webcomponents-2.1.5.tgz#79dcdcc49ae17ea309080eebc463710221ced890"
@@ -1215,6 +1244,11 @@
   dependencies:
     "@noble/hashes" "~1.8.0"
     "@scure/base" "~1.2.5"
+
+"@simplewebauthn/browser@^13.2.0":
+  version "13.2.2"
+  resolved "https://registry.yarnpkg.com/@simplewebauthn/browser/-/browser-13.2.2.tgz#4cde38c4c6969a039c23c2a3d931ecb69f937910"
+  integrity sha512-FNW1oLQpTJyqG5kkDg5ZsotvWgmBaC6jCHR7Ej0qUNep36Wl9tj2eZu7J5rP+uhXgHaLk+QQ3lqcw2vS5MX1IA==
 
 "@sinclair/typebox@^0.33.7":
   version "0.33.22"
@@ -1742,7 +1776,7 @@
     toml "^3.0.0"
     urijs "^1.19.1"
 
-"@stellar/stellar-sdk@^14.2.0", "@stellar/stellar-sdk@^14.4.2":
+"@stellar/stellar-sdk@^14.2.0", "@stellar/stellar-sdk@^14.4.0", "@stellar/stellar-sdk@^14.4.2":
   version "14.5.0"
   resolved "https://registry.yarnpkg.com/@stellar/stellar-sdk/-/stellar-sdk-14.5.0.tgz#250015e67c2d99e94b010d05cbacecb9e49dd6da"
   integrity sha512-Uzjq+An/hUA+Q5ERAYPtT0+MMiwWnYYWMwozmZMjxjdL2MmSjucBDF8Q04db6K/ekU4B5cHuOfsdlrfaxQYblw==
@@ -2831,7 +2865,7 @@ available-typed-arrays@^1.0.7:
   dependencies:
     possible-typed-array-names "^1.0.0"
 
-axios@^1.13.3, axios@^1.8.4:
+axios@^1.13.2, axios@^1.13.3, axios@^1.7.7, axios@^1.8.4:
   version "1.13.5"
   resolved "https://registry.yarnpkg.com/axios/-/axios-1.13.5.tgz#5e464688fa127e11a660a2c49441c009f6567a43"
   integrity sha512-cz4ur7Vb0xS4/KUN0tPWe44eqxrIu31me+fbang3ijiNscE129POzipJJA6zniq2C/Z6sJCjMimjS8Lc/GAs8Q==
@@ -2886,6 +2920,11 @@ base64-js@^1.3.1:
   version "1.5.1"
   resolved "https://registry.yarnpkg.com/base64-js/-/base64-js-1.5.1.tgz#1b1b440160a5bf7ad40b650f095963481903930a"
   integrity sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==
+
+base64url@^3.0.1:
+  version "3.0.1"
+  resolved "https://registry.yarnpkg.com/base64url/-/base64url-3.0.1.tgz#6399d572e2bc3f90a9a8b22d5dbb0a32d33f788d"
+  integrity sha512-ir1UPr3dkwexU7FdV8qBBbNDRUhMmIekYMFZfi+C/sLNnRESKPl23nB9b2pltqfOQNnGzsDdId90AEtG5tCx4A==
 
 baseline-browser-mapping@^2.9.0:
   version "2.9.19"
@@ -4915,6 +4954,27 @@ parse-asn1@^5.0.0, parse-asn1@^5.1.9:
     pbkdf2 "^3.1.5"
     safe-buffer "^5.2.1"
 
+passkey-kit-sdk@0.7.2:
+  version "0.7.2"
+  resolved "https://registry.yarnpkg.com/passkey-kit-sdk/-/passkey-kit-sdk-0.7.2.tgz#d011e8ad7047321ea5986b3640b006b33be9aff5"
+  integrity sha512-+JwND3tUfygT1zw+MdAmqO8NpaATJFo9+1spEkwv1tiFX+/DIJjQXyw8M54hrhQIEiIFevLpOXSQXMTV78m2wQ==
+  dependencies:
+    "@stellar/stellar-sdk" "^14.2.0"
+    buffer "^6.0.3"
+
+passkey-kit@^0.12.0:
+  version "0.12.0"
+  resolved "https://registry.yarnpkg.com/passkey-kit/-/passkey-kit-0.12.0.tgz#e2c4184f83124be23419351ff673b92c158a30a3"
+  integrity sha512-7FB0TCPepwdiR+lotnE8LvmJzRLLk8Y68mWmvTNjUhrcI7XA2eB5agrDzd2SAs+hqvH4MbSXUnTpQq+qxoJw7w==
+  dependencies:
+    "@openzeppelin/relayer-plugin-channels" "^0.5.0"
+    "@simplewebauthn/browser" "^13.2.0"
+    "@stellar/stellar-sdk" "^14.2.0"
+    base64url "^3.0.1"
+    buffer "^6.0.3"
+    passkey-kit-sdk "0.7.2"
+    sac-sdk "0.4.2"
+
 path-browserify@^1.0.1:
   version "1.0.1"
   resolved "https://registry.yarnpkg.com/path-browserify/-/path-browserify-1.0.1.tgz#d98454a9c3753d5790860f16f68867b9e46be1fd"
@@ -5339,7 +5399,7 @@ rxjs@7.8.2, rxjs@^7.5.5, rxjs@^7.8.1:
   dependencies:
     tslib "^2.1.0"
 
-sac-sdk@^0.4.2:
+sac-sdk@0.4.2, sac-sdk@^0.4.2:
   version "0.4.2"
   resolved "https://registry.yarnpkg.com/sac-sdk/-/sac-sdk-0.4.2.tgz#8c8f9a25cdb9b264bd549c55c9b502e45e6c2d62"
   integrity sha512-zi6z1wgkK4XmZnyPssmAlN1Lb0s+LW1imkD3IZH20C3DjGH6VwsgElHqvfHZVuwDzmcPlcJq2FWQCuTaSQPgCQ==

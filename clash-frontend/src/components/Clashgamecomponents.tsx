@@ -1,9 +1,10 @@
 /**
  * ClashGameComponents.tsx
  */
-
+import { useState, useEffect } from 'react';
 import type { Game, Move, BattleResult, GamePlayback, DetailedTurnResult } from '@/games/clash/bindings';
 import { Attack, Defense } from '@/games/clash/bindings';
+
 
 // ─────────────────────────────────────────────────────────────
 // Constants & Meta
@@ -442,27 +443,19 @@ function TurnCard({ turn, isP1 }: { turn: DetailedTurnResult; isP1: boolean }) {
 // CreateGamePanel — mode tabs + import/load/create sub-panels
 // ─────────────────────────────────────────────────────────────
 
-export type CreateMode = 'create' | 'import' | 'load';
+export type CreateMode = 'challenge' | 'join' | 'load';
 
 interface CreateGamePanelProps {
   createMode: CreateMode;
   setCreateMode: (m: CreateMode) => void;
 
-  // create mode
-  player1Address: string;
-  setPlayer1Address: (v: string) => void;
-  player1Points: string;
-  setPlayer1Points: (v: string) => void;
-  availablePoints: bigint;
-  sessionId: number;
-  exportedAuthEntryXDR: string | null;
-  authEntryCopied: boolean;
-  shareUrlCopied: boolean;
-  onPrepareTransaction: () => void;
-  onCopyAuthEntry: () => void;
-  onCopyShareUrl: () => void;
+  // connected wallet
+  userAddress: string;
 
-  // import mode
+  // challenge mode (send)
+  availablePoints: bigint;
+
+  // join mode (import XDR)
   importAuthEntryXDR: string;
   setImportAuthEntryXDR: (v: string) => void;
   importSessionId: string;
@@ -473,50 +466,282 @@ interface CreateGamePanelProps {
   xdrParsing: boolean;
   xdrParseError: string | null;
   xdrParseSuccess: boolean;
-  userAddress: string;
   onImportTransaction: () => void;
 
   // load mode
   loadSessionId: string;
   setLoadSessionId: (v: string) => void;
   onLoadGame: () => void;
-  onCopyLoadShareUrl: () => void;
-
-  // quickstart
-  quickstartAvailable: boolean;
-  quickstartLoading: boolean;
-  onQuickStart: () => void;
 
   // shared
   loading: boolean;
   isBusy: boolean;
+
+  // challenge send callback
+  onSendChallenge: (targetAddress: string, points: bigint) => Promise<void>;
 }
 
 export function CreateGamePanel(p: CreateGamePanelProps) {
-  return (
-    <div className="create-panel-centered">
-      <div className="play-button-wrapper">
-        <div className="play-button-ring ring-3" />
-        <div className="play-button-ring ring-2" />
-        <div className="play-button-ring ring-1" />
+  const [targetInput, setTargetInput] = useState('');
+  const [pointsStr, setPointsStr] = useState('0.10');
+  const [resolving, setResolving] = useState(false);
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendSuccess, setSendSuccess] = useState<string | null>(null);
 
-        <button
-          onClick={p.onQuickStart}
-          disabled={p.isBusy || !p.quickstartAvailable}
-          className="play-button-main"
-        >
-          <span className="play-button-icon">⚔️</span>
-          <span className="play-button-label">
-            {p.quickstartLoading ? 'Setting Sail…' : 'Play Game'}
-          </span>
-        </button>
+  // Resolve username or validate address on input change
+  useEffect(() => {
+    const raw = targetInput.trim();
+    if (!raw) { setResolvedAddress(null); setResolveError(null); return; }
+
+    // If it looks like a Stellar address (G..., 56 chars), use directly
+    if ((raw.startsWith('G') || raw.startsWith('C')) && raw.length >= 50 && !raw.includes(' ')) {
+      if (raw === p.userAddress) {
+        setResolveError('Cannot challenge yourself');
+        setResolvedAddress(null);
+      } else {
+        setResolvedAddress(raw);
+        setResolveError(null);
+      }
+      return;
+    }
+
+
+
+    // Otherwise treat as username — resolve on-chain
+    setResolving(true);
+    setResolvedAddress(null);
+    setResolveError(null);
+
+    const tid = setTimeout(async () => {
+      try {
+        const { resolveUsername } = await import('@/services/passkeyService');
+        const addr = await resolveUsername(raw.toLowerCase());
+        if (!addr) { setResolveError('Username not found'); }
+        else if (addr === p.userAddress) { setResolveError('Cannot challenge yourself'); }
+        else { setResolvedAddress(addr); }
+      } catch { setResolveError('Lookup failed'); }
+      finally { setResolving(false); }
+    }, 500);
+    return () => clearTimeout(tid);
+  }, [targetInput, p.userAddress]);
+
+  const handleSend = async () => {
+    if (!resolvedAddress) return;
+    const pts = parsePointsLocal(pointsStr);
+    if (!pts || pts <= 0n) { setSendError('Enter a valid points amount'); return; }
+    setSending(true); setSendError(null); setSendSuccess(null);
+    try {
+      await p.onSendChallenge(resolvedAddress, pts);
+      setSendSuccess('Challenge sent!');
+      setTargetInput(''); setResolvedAddress(null);
+    } catch (err: any) {
+      setSendError(err?.message ?? 'Failed to send challenge');
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Mode tabs */}
+      <div className="flex gap-2 border-b-2 border-gray-100 pb-1">
+        {([
+          { key: 'challenge', label: '⚔️ Send Challenge' },
+          { key: 'join',      label: '🔗 Join via Link'  },
+          { key: 'load',      label: '📂 Load Game'      },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => p.setCreateMode(tab.key)}
+            className={`px-3 py-1.5 text-xs font-black rounded-lg transition-all ${
+              p.createMode === tab.key
+                ? 'bg-gradient-to-r from-red-600 to-orange-500 text-white shadow'
+                : 'text-gray-400 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {!p.quickstartAvailable && (
-        <p className="play-unavailable-hint">
-          Dev wallets not detected — run <code>bun run setup</code> to enable
-        </p>
+      {/* ── CHALLENGE MODE ── */}
+      {p.createMode === 'challenge' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">
+            Challenge any captain by username or wallet address. They'll get a notification
+            in their Challenge Hub and can accept within 7 days.
+          </p>
+
+          {/* From address (read-only) */}
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              Your Address
+            </label>
+            <div className="font-mono text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-600 truncate">
+              {p.userAddress}
+            </div>
+          </div>
+
+          {/* Target input */}
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              ⚓ Opponent (username or G… address)
+            </label>
+            <div className="relative">
+              <input
+                className={`w-full font-mono text-sm bg-white border-2 rounded-xl px-4 py-3 outline-none transition-all ${
+                  resolvedAddress ? 'border-green-400 focus:border-green-500'
+                  : resolveError  ? 'border-red-300 focus:border-red-400'
+                  : 'border-gray-200 focus:border-orange-400'
+                }`}
+                placeholder="captain_redbeard  or  GABC…XYZ"
+                value={targetInput}
+                onChange={e => { setTargetInput(e.target.value); setSendError(null); setSendSuccess(null); }}
+                disabled={sending || p.isBusy}
+                spellCheck={false}
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm">
+                {resolving      ? '⏳' :
+                 resolvedAddress ? '✅' :
+                 resolveError   ? '❌' : ''}
+              </span>
+            </div>
+            {resolvedAddress && (
+              <p className="mt-1 text-[11px] text-green-600 font-mono">
+                → {resolvedAddress.slice(0, 8)}…{resolvedAddress.slice(-6)}
+              </p>
+            )}
+            {resolveError && (
+              <p className="mt-1 text-[11px] text-red-500">{resolveError}</p>
+            )}
+          </div>
+
+          {/* Points wager */}
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              💰 Points to Wager
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              className="w-full text-sm bg-white border-2 border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-orange-400 transition-all"
+              value={pointsStr}
+              onChange={e => setPointsStr(e.target.value)}
+              disabled={sending || p.isBusy}
+            />
+            <p className="mt-1 text-[10px] text-gray-400">
+              Available: {formatPoints(p.availablePoints)} pts · Winner takes the pot
+            </p>
+          </div>
+
+          {sendError   && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-semibold">{sendError}</div>}
+          {sendSuccess && <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 font-semibold">{sendSuccess}</div>}
+
+          <button
+            onClick={handleSend}
+            disabled={!resolvedAddress || sending || p.isBusy}
+            className="w-full py-3 rounded-xl font-black text-sm text-white bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed hover:shadow-orange-300/50 hover:shadow-xl transition-all"
+          >
+            {sending ? '⏳ Sending Challenge…' : '⚔️ Send Challenge'}
+          </button>
+        </div>
+      )}
+
+      {/* ── JOIN MODE (existing XDR import) ── */}
+      {p.createMode === 'join' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">
+            Paste the challenge link or XDR your opponent shared with you.
+          </p>
+
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              Auth Entry XDR / Link
+            </label>
+            <textarea
+              className={`w-full font-mono text-xs bg-white border-2 rounded-xl px-4 py-3 outline-none h-24 resize-none transition-all ${
+                p.xdrParseSuccess ? 'border-green-400'
+                : p.xdrParseError ? 'border-red-300'
+                : 'border-gray-200 focus:border-orange-400'
+              }`}
+              placeholder="Paste XDR or share URL here…"
+              value={p.importAuthEntryXDR}
+              onChange={e => p.setImportAuthEntryXDR(e.target.value)}
+              disabled={p.isBusy}
+            />
+            {p.xdrParsing    && <p className="text-[11px] text-gray-400 mt-1">⏳ Parsing…</p>}
+            {p.xdrParseError && <p className="text-[11px] text-red-500 mt-1">{p.xdrParseError}</p>}
+            {p.xdrParseSuccess && (
+              <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-lg text-[11px] text-green-700 space-y-0.5">
+                <p>✅ Valid challenge from <span className="font-mono">{p.importPlayer1.slice(0,6)}…{p.importPlayer1.slice(-4)}</span></p>
+                <p>Session #{p.importSessionId} · {p.importPlayer1Points} pts wagered</p>
+              </div>
+            )}
+          </div>
+
+          {p.xdrParseSuccess && (
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+                Your Points Wager
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                className="w-full text-sm bg-white border-2 border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-orange-400 transition-all"
+                value={p.importPlayer2Points}
+                onChange={e => p.setImportPlayer2Points(e.target.value)}
+                disabled={p.isBusy}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={p.onImportTransaction}
+            disabled={!p.xdrParseSuccess || p.isBusy}
+            className="w-full py-3 rounded-xl font-black text-sm text-white bg-gradient-to-r from-red-600 to-orange-500 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            {p.loading ? '⏳ Joining…' : '🔗 Join Game'}
+          </button>
+        </div>
+      )}
+
+      {/* ── LOAD MODE ── */}
+      {p.createMode === 'load' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">Resume a game you're already part of.</p>
+          <div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
+              Session ID
+            </label>
+            <input
+              className="w-full font-mono text-sm bg-white border-2 border-gray-200 rounded-xl px-4 py-3 outline-none focus:border-orange-400 transition-all"
+              placeholder="e.g. 3891204712"
+              value={p.loadSessionId}
+              onChange={e => p.setLoadSessionId(e.target.value)}
+              disabled={p.isBusy}
+            />
+          </div>
+          <button
+            onClick={p.onLoadGame}
+            disabled={!p.loadSessionId.trim() || p.isBusy}
+            className="w-full py-3 rounded-xl font-black text-sm text-white bg-gradient-to-r from-gray-700 to-gray-900 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            {p.loading ? '⏳ Loading…' : '📂 Load Game'}
+          </button>
+        </div>
       )}
     </div>
   );
+}
+
+// local helper — keep out of module scope to avoid conflict
+function parsePointsLocal(value: string): bigint | null {
+  try {
+    const [whole = '0', fraction = ''] = value.replace(/[^\d.]/g, '').split('.');
+    const padded = fraction.padEnd(7, '0').slice(0, 7);
+    return BigInt(whole + padded);
+  } catch { return null; }
 }

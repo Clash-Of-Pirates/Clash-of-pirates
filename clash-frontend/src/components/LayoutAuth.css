@@ -1,0 +1,111 @@
+/* LayoutAuth.css — auth-aware navbar additions */
+
+/* ── Challenge button ── */
+.nav-challenge-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, rgba(220,38,38,0.15), rgba(234,88,12,0.15));
+    border: 1px solid rgba(220,38,38,0.4);
+    border-radius: 10px;
+    color: #fca5a5;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: 'Cinzel', serif;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .nav-challenge-btn:hover {
+    background: linear-gradient(135deg, rgba(220,38,38,0.3), rgba(234,88,12,0.3));
+    border-color: rgba(220,38,38,0.7);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(220,38,38,0.25);
+  }
+  .nav-challenge-label { display: none; }
+  @media (min-width: 640px) {
+    .nav-challenge-label { display: inline; }
+  }
+  
+  /* ── User pill ── */
+  .nav-user-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, rgba(212,165,116,0.1), rgba(255,215,0,0.08));
+    border: 1px solid rgba(212,165,116,0.35);
+    border-radius: 12px;
+    padding: 0.4rem 0.75rem 0.4rem 0.5rem;
+    box-shadow: 0 0 20px rgba(212,165,116,0.1);
+  }
+  .nav-user-avatar {
+    font-size: 1.5rem;
+    filter: drop-shadow(0 0 8px rgba(212,165,116,0.5));
+  }
+  .nav-user-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .nav-user-name {
+    font-family: 'Cinzel', serif;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #d4a574;
+    line-height: 1.2;
+  }
+  .nav-user-addr {
+    font-family: 'Courier New', monospace;
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.3);
+    line-height: 1.2;
+  }
+  @media (max-width: 480px) {
+    .nav-user-info { display: none; }
+  }
+  
+  .nav-logout-btn {
+    background: none;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: all 0.2s;
+    padding: 0.1rem;
+    border-radius: 4px;
+  }
+  .nav-logout-btn:hover {
+    opacity: 1;
+    background: rgba(220,38,38,0.15);
+    transform: scale(1.2);
+  }
+  
+  /* ── Login button ── */
+  .nav-login-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.25rem;
+    background: linear-gradient(135deg, #dc2626 0%, #ea580c 60%, #f59e0b 100%);
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    font-family: 'Cinzel', serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(220,38,38,0.4);
+    transition: all 0.2s;
+    animation: navBtnBreath 3s ease-in-out infinite;
+  }
+  .nav-login-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(220,38,38,0.55);
+  }
+  @keyframes navBtnBreath {
+    0%,100% { box-shadow: 0 4px 20px rgba(220,38,38,0.4); }
+    50%      { box-shadow: 0 6px 30px rgba(220,38,38,0.6); }
+  }

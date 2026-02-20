@@ -82,3 +82,16 @@ export const DEFAULT_METHOD_OPTIONS = {
 // Auth TTL constants (in minutes)
 export const DEFAULT_AUTH_TTL_MINUTES = 5;
 export const MULTI_SIG_AUTH_TTL_MINUTES = 60;
+
+
+/** Launchtube — gasless tx relay (testnet & mainnet) */
+export const LAUNCHTUBE_URL = import.meta.env.VITE_LAUNCHTUBE_URL as string ?? '';
+export const LAUNCHTUBE_JWT = import.meta.env.VITE_LAUNCHTUBE_JWT as string ?? '';
+
+/** true on Stellar testnet — enables Friendbot funding & testnet helpers */
+export const IS_TESTNET: boolean = import.meta.env.VITE_IS_TESTNET === 'true';
+
+// Legacy aliases (backward compat)
+export const NETWORK_ON = IS_TESTNET ? 'testnet' : 'mainnet';
+
+export const WALLET_WASM_HASH = import.meta.env.VITE_WASM_HASH || '';
