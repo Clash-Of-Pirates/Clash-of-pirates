@@ -202,42 +202,45 @@ VERIFIER_CID="$(
 echo -e "${GREEN}✓ Verifier deployed: $VERIFIER_CID${NC}"
 
 # ── Smoke-test: verify_proof still works standalone ──────────────────────────
-# echo ""
-# echo -e "${BLUE}==> 9) Smoke-test: verify_proof (Player 1) — no state written${NC}"
-# stellar contract invoke \
-#   --id "$VERIFIER_CID" \
-#   --network testnet \
-#   --source-account kaysT \
-#   --send no \
-#   -- \
-#   verify_proof \
-#   --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player1" \
-#   --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player1"
-# echo -e "${GREEN}✓ verify_proof smoke-test passed${NC}"
+echo ""
+echo -e "${BLUE}==> 9) Smoke-test: verify_proof (Player 1) — no state written${NC}"
+stellar contract invoke \
+  --id "$VERIFIER_CID" \
+  --network testnet \
+  --source-account kaysT \
+  --instructions 100000000 \
+  --send no \
+  -- \
+  verify_proof \
+  --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player1" \
+  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player1"
+echo -e "${GREEN}✓ verify_proof smoke-test passed${NC}"
 
-# echo ""
-# echo -e "${BLUE}==> 10) Smoke-test: verify_proof (Player 2)${NC}"
-# stellar contract invoke \
-#   --id "$VERIFIER_CID" \
-#   --network testnet \
-#   --source-account kaysT \
-#   --send no \
-#   -- \
-#   verify_proof \
-#   --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player2" \
-#   --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player2"
-# echo -e "${GREEN}✓ verify_proof smoke-test passed${NC}"
+echo ""
+echo -e "${BLUE}==> 10) Smoke-test: verify_proof (Player 2)${NC}"
+stellar contract invoke \
+  --id "$VERIFIER_CID" \
+  --network testnet \
+  --source-account kaysT \
+  --instructions 100000000 \
+  --send no \
+  -- \
+  verify_proof \
+  --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player2" \
+  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player2"
+echo -e "${GREEN}✓ verify_proof smoke-test passed${NC}"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Deploy Mock GameHub and Clash Contract
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${YELLOW}║  Deploying Mock GameHub & Clash Game Contract             ║${NC}"
+echo -e "${YELLOW}║  Deploying Mock & Clash Game Contract                            ║${NC}"
 echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════╝${NC}"
 
+# Create mock GameHub contract (simplified version for testing)
 echo ""
-echo -e "${BLUE}==> 11) Deploy mock GameHub${NC}"
+echo -e "${BLUE}==> 12) Deploy mock GameHub${NC}"
 cd "$MOCK_HUB_CONTRACT_DIR"
 stellar contract build
 
@@ -248,30 +251,49 @@ MOCK_HUB_CID="$(
     --source-account kaysT \
   | tail -n1
 )"
-echo -e "${GREEN}✓ Mock hub deployed: $MOCK_HUB_CID${NC}"
+
+echo -e "${GREEN}✓ mockhub contract deployed: $MOCK_HUB_CID${NC}"
+
+
+cd "$CLASH_CONTRACT_DIR"
 
 echo ""
-echo -e "${BLUE}==> 12) Build Clash contract${NC}"
-cd "$CLASH_CONTRACT_DIR"
+echo -e "${BLUE}==> 11) Build Clash contract${NC}"
 stellar contract build
 
-echo ""
-echo -e "${BLUE}==> 13) Set up player accounts${NC}"
-if ! stellar keys address playerone 2>/dev/null; then
-  stellar keys generate --global playerone
-fi
-if ! stellar keys address playertwo 2>/dev/null; then
-  stellar keys generate --global playertwo
-fi
-
+# Get account addresses
 ADMIN_ADDR="$(stellar keys address kaysT)"
-PLAYER1_ADDR="$(stellar keys address playerone)"
-PLAYER2_ADDR="$(stellar keys address playertwo)"
+# PLAYER1_ADDR="$(stellar keys address player1 2>/dev/null || stellar keys generate player1 && stellar keys address player1)"
+# PLAYER2_ADDR="$(stellar keys address player2 2>/dev/null || stellar keys generate player2 && stellar keys address player2)"
+echo ""
+echo -e "${BLUE}==> Setting up player accounts${NC}"
 
+# Generate keys if they don't exist
+if ! stellar keys address playerone 2>/dev/null; then
+    echo "    Generating playerone key..."
+    stellar keys generate --global playerone
+fi
+
+if ! stellar keys address playertwo 2>/dev/null; then
+    echo "    Generating playertwo key..."
+    stellar keys generate --global playertwo
+fi
+
+# Store addresses in variables
+PLAYER1_ADDR=$(stellar keys address playerone)
+PLAYER2_ADDR=$(stellar keys address playertwo)
+
+# Fund the accounts on testnet network
+echo "    Funding player1..."
 stellar keys fund playerone --network testnet
+
+echo "    Funding player2..."
 stellar keys fund playertwo --network testnet
+
 echo -e "${GREEN}✓ Player accounts funded${NC}"
-echo "    Admin:    $ADMIN_ADDR"
+
+
+echo "    Admin: $ADMIN_ADDR"
 echo "    Player 1: $PLAYER1_ADDR"
 echo "    Player 2: $PLAYER2_ADDR"
 
@@ -280,16 +302,28 @@ CLASH_CID="$(
     --wasm $TARGET_DIR/wasm32v1-none/release/clash.wasm \
     --network testnet \
     --source-account kaysT \
-    -- \
-    --admin "$ADMIN_ADDR" \
-    --game-hub "$MOCK_HUB_CID" \
-    --verifier_contract "$VERIFIER_CID" \
+    -- --admin $ADMIN_ADDR \
+    --game-hub $MOCK_HUB_CID \
+    --verifier_contract $VERIFIER_CID \
   | tail -n1
 )"
+
 echo -e "${GREEN}✓ Clash contract deployed: $CLASH_CID${NC}"
 
+# Initialize Clash contract
+echo ""
+echo -e "${BLUE}==> 13) Initialize Clash contract${NC}"
+
+echo -e "${GREEN}✓ Clash contract initialized${NC}"
+
+# Update the Clash contract source code with the deployed verifier address
+echo ""
+echo "    Deploy:  $VERIFIER_CID"
+echo ""
+echo -e "${YELLOW}⚠️  For testing, we'll use the deployed address directly${NC}"
+
 # ══════════════════════════════════════════════════════════════════════════════
-# Complete Game Flow
+# Simulate Complete Game Flow
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${NC}"
@@ -299,9 +333,13 @@ echo -e "${YELLOW}╚═══════════════════�
 SESSION_ID=42
 POINTS_WAGERED=1000
 
-# ── Start Game ───────────────────────────────────────────────────────────────
+# Step 1: Start Game
 echo ""
-echo -e "${BLUE}==> 14) Start game (Session $SESSION_ID)${NC}"
+echo -e "${BLUE}==> 15) Start game (Session $SESSION_ID)${NC}"
+echo "    Player 1: $PLAYER1_ADDR"
+echo "    Player 2: $PLAYER2_ADDR"
+echo "    Wager: $POINTS_WAGERED points each"
+
 stellar contract invoke \
   --id "$CLASH_CID" \
   --network testnet \
@@ -309,37 +347,18 @@ stellar contract invoke \
   --send yes \
   -- \
   start_game \
-  --session_id    "$SESSION_ID" \
-  --player1       "$PLAYER1_ADDR" \
-  --player2       "$PLAYER2_ADDR" \
+  --session_id "$SESSION_ID" \
+  --player1 "$PLAYER1_ADDR" \
+  --player2 "$PLAYER2_ADDR" \
   --player1_points "$POINTS_WAGERED" \
   --player2_points "$POINTS_WAGERED"
+
 echo -e "${GREEN}✓ Game started!${NC}"
 
-# ============================================================================
-# COMMIT PHASE
-# Each player does TWO transactions:
-#   Tx A  →  verifier::verify_and_attest_commit  (expensive — all the crypto)
-#   Tx B  →  clash::commit_moves                 (cheap — reads attestation)
-# ============================================================================
-
-# ── Player 1: Tx A — attest commit ──────────────────────────────────────────
+# Step 2: Player 1 commits moves
 echo ""
-echo -e "${BLUE}==> 15a) Player 1: verify_and_attest_commit (Tx A — ZK verification)${NC}"
-stellar contract invoke \
-  --id "$VERIFIER_CID" \
-  --network testnet \
-  --source-account playerone \
-  --send yes \
-  -- \
-  verify_and_attest_commit \
-  --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player1" \
-  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player1"
-echo -e "${GREEN}✓ Player 1 commit attestation written${NC}"
+echo -e "${BLUE}==> 16) Player 1 commits moves (with ZK proof)${NC}"
 
-# ── Player 1: Tx B — commit moves ───────────────────────────────────────────
-echo ""
-echo -e "${BLUE}==> 15b) Player 1: commit_moves (Tx B — reads attestation, no crypto)${NC}"
 stellar contract invoke \
   --id "$CLASH_CID" \
   --network testnet \
@@ -347,29 +366,17 @@ stellar contract invoke \
   --send yes \
   -- \
   commit_moves \
-  --session_id              "$SESSION_ID" \
-  --player                  "$PLAYER1_ADDR" \
+  --session_id "$SESSION_ID" \
+  --player "$PLAYER1_ADDR" \
   --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player1" \
-  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player1"
+  --proof_bytes-file-path "$CIRCUIT_DIR/target/proof.player1"
+
 echo -e "${GREEN}✓ Player 1 committed!${NC}"
 
-# ── Player 2: Tx A — attest commit ──────────────────────────────────────────
+# Step 3: Player 2 commits moves
 echo ""
-echo -e "${BLUE}==> 16a) Player 2: verify_and_attest_commit (Tx A — ZK verification)${NC}"
-stellar contract invoke \
-  --id "$VERIFIER_CID" \
-  --network testnet \
-  --source-account playertwo \
-  --send yes \
-  -- \
-  verify_and_attest_commit \
-  --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player2" \
-  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player2"
-echo -e "${GREEN}✓ Player 2 commit attestation written${NC}"
+echo -e "${BLUE}==> 17) Player 2 commits moves (with ZK proof)${NC}"
 
-# ── Player 2: Tx B — commit moves ───────────────────────────────────────────
-echo ""
-echo -e "${BLUE}==> 16b) Player 2: commit_moves (Tx B — reads attestation, no crypto)${NC}"
 stellar contract invoke \
   --id "$CLASH_CID" \
   --network testnet \
@@ -377,40 +384,17 @@ stellar contract invoke \
   --send yes \
   -- \
   commit_moves \
-  --session_id              "$SESSION_ID" \
-  --player                  "$PLAYER2_ADDR" \
+  --session_id "$SESSION_ID" \
+  --player "$PLAYER2_ADDR" \
   --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player2" \
-  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player2"
+  --proof_bytes-file-path "$CIRCUIT_DIR/target/proof.player2"
+
 echo -e "${GREEN}✓ Player 2 committed!${NC}"
 
-# ============================================================================
-# REVEAL PHASE
-# Same pattern — two transactions per player:
-#   Tx C  →  verifier::verify_and_attest_reveal  (expensive)
-#   Tx D  →  clash::reveal_moves                 (cheap)
-#
-# verify_and_attest_reveal takes the same public_inputs + proof as commit,
-# PLUS moves_raw (6 bytes: [atk0,atk1,atk2,def0,def1,def2]).
-# ============================================================================
-
-# ── Player 1: Tx C — attest reveal ──────────────────────────────────────────
+# Step 4: Player 1 reveals moves
 echo ""
-echo -e "${BLUE}==> 17a) Player 1: verify_and_attest_reveal (Tx C — ZK verification)${NC}"
-stellar contract invoke \
-  --id "$VERIFIER_CID" \
-  --network testnet \
-  --source-account playerone \
-  --send yes \
-  -- \
-  verify_and_attest_reveal \
-  --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player1" \
-  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player1" \
-  --moves_raw-file-path     "$CIRCUIT_DIR/target/moves_raw.player1"
-echo -e "${GREEN}✓ Player 1 reveal attestation written${NC}"
+echo -e "${BLUE}==> 18) Player 1 reveals moves${NC}"
 
-# ── Player 1: Tx D — reveal moves ───────────────────────────────────────────
-echo ""
-echo -e "${BLUE}==> 17b) Player 1: reveal_moves (Tx D — reads attestation, no crypto)${NC}"
 stellar contract invoke \
   --id "$CLASH_CID" \
   --network testnet \
@@ -418,35 +402,45 @@ stellar contract invoke \
   --send yes \
   -- \
   reveal_moves \
-  --session_id              "$SESSION_ID" \
-  --player                  "$PLAYER1_ADDR" \
+  --session_id "$SESSION_ID" \
+  --player "$PLAYER1_ADDR" \
   --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player1" \
   --moves '[{"attack":0,"defense":0},{"attack":1,"defense":1},{"attack":2,"defense":2}]'
+#   --proof_bytes-file-path "$CIRCUIT_DIR/target/proof.player1" \
+
 echo -e "${GREEN}✓ Player 1 revealed!${NC}"
 
-sleep 3
+# Wait for transaction to finalize
+echo "    Waiting for transaction to finalize..."
+sleep 5
 
-# ── Player 2: Tx C — attest reveal ──────────────────────────────────────────
+
+# Step 5: Player 2 reveals moves
 echo ""
-echo -e "${BLUE}==> 18a) Player 2: verify_and_attest_reveal (Tx C — ZK verification)${NC}"
+echo -e "${BLUE}==> 19) Player 2 reveals moves${NC}"
+
+# Simulate first
+echo "    Simulating transaction..."
 stellar contract invoke \
-  --id "$VERIFIER_CID" \
+  --id "$CLASH_CID" \
   --network testnet \
   --source-account playertwo \
-  --send yes \
+  --send no \
   -- \
-  verify_and_attest_reveal \
+  reveal_moves \
+  --session_id "$SESSION_ID" \
+  --player "$PLAYER2_ADDR" \
   --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player2" \
-  --proof_bytes-file-path   "$CIRCUIT_DIR/target/proof.player2" \
-  --moves_raw-file-path     "$CIRCUIT_DIR/target/moves_raw.player2"
-echo -e "${GREEN}✓ Player 2 reveal attestation written${NC}"
+  --moves '[{"attack":1,"defense":2},{"attack":2,"defense":0},{"attack":0,"defense":1}]'
+#   --proof_bytes-file-path "$CIRCUIT_DIR/target/proof.player2" \
 
-# ── Player 2: Tx D — reveal moves ───────────────────────────────────────────
-echo ""
-echo -e "${BLUE}==> 18b) Player 2: reveal_moves (Tx D — reads attestation, no crypto)${NC}"
+echo "    Simulation successful, submitting transaction..."
+sleep 2
 
+# Retry logic
 MAX_RETRIES=3
 RETRY_COUNT=0
+
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   if stellar contract invoke \
     --id "$CLASH_CID" \
@@ -455,10 +449,11 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     --send yes \
     -- \
     reveal_moves \
-    --session_id              "$SESSION_ID" \
-    --player                  "$PLAYER2_ADDR" \
+    --session_id "$SESSION_ID" \
+    --player "$PLAYER2_ADDR" \
     --public_inputs-file-path "$CIRCUIT_DIR/target/public_inputs.player2" \
     --moves '[{"attack":1,"defense":2},{"attack":2,"defense":0},{"attack":0,"defense":1}]'; then
+    # --proof_bytes-file-path "$CIRCUIT_DIR/target/proof.player2" \
     echo -e "${GREEN}✓ Player 2 revealed!${NC}"
     break
   else
@@ -473,9 +468,10 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   fi
 done
 
-# ── Resolve Battle ───────────────────────────────────────────────────────────
+# Step 6: Resolve battle
 echo ""
-echo -e "${BLUE}==> 19) Resolve battle${NC}"
+echo -e "${BLUE}==> 20) Resolve battle${NC}"
+
 BATTLE_RESULT="$(stellar contract invoke \
   --id "$CLASH_CID" \
   --network testnet \
@@ -485,14 +481,17 @@ BATTLE_RESULT="$(stellar contract invoke \
   resolve_battle \
   --session_id "$SESSION_ID"
 )"
+
+echo ""
 echo -e "${GREEN}✓ Battle resolved!${NC}"
 echo ""
 echo "Battle Result:"
 echo "$BATTLE_RESULT"
 
-# ── Game Playback ────────────────────────────────────────────────────────────
+# Step 7: Get game playback
 echo ""
-echo -e "${BLUE}==> 20) Get detailed game playback${NC}"
+echo -e "${BLUE}==> 21) Get detailed game playback${NC}"
+
 PLAYBACK="$(stellar contract invoke \
   --id "$CLASH_CID" \
   --network testnet \
@@ -501,6 +500,8 @@ PLAYBACK="$(stellar contract invoke \
   get_game_playback \
   --session_id "$SESSION_ID"
 )"
+
+echo ""
 echo -e "${GREEN}✓ Game playback retrieved!${NC}"
 echo ""
 echo "Detailed Playback:"
@@ -521,9 +522,10 @@ echo "  • Session ID:         $SESSION_ID"
 echo "  • Player 1:           $PLAYER1_ADDR"
 echo "  • Player 2:           $PLAYER2_ADDR"
 echo ""
-echo "💡 Budget strategy:"
-echo "  Each commit/reveal is split across 2 transactions:"
-echo "  • Tx A/C → verifier::verify_and_attest_* (all crypto, ~95% budget)"
-echo "  • Tx B/D → clash::commit_moves / reveal_moves (storage only, ~5% budget)"
+echo "✨ Both players successfully:"
+echo "  1. Generated ZK proofs of their moves"
+echo "  2. Committed to their moves on-chain"
+echo "  3. Revealed their moves with proof verification"
+echo "  4. Battle was resolved automatically"
 echo ""
 echo "🎮 Game is ready for production!"

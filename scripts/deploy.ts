@@ -59,9 +59,9 @@ Examples:
 console.log("🚀 Deploying contracts to Stellar testnet...\n");
 const Keypair = await loadKeypairFactory();
 
-const EXISTING_GAME_HUB_TESTNET_CONTRACT_ID = 'CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG';
-const GAME_HUB_LOCAL_CONTRACT_ID = 'CCFP3VUSWMKXTQOXVQKW56XZ3ZAZ357IZHQMAUGPT65GEKJAYIC3INOZ';
-const VERIFIER_LOCAL_CONTRACT_ID = 'CDFWUHFR42QMUAL5TQ4FS65NXD7EGIKQ5DHKMVCMILM4HUEALEXKY2FS';
+// const EXISTING_GAME_HUB_TESTNET_CONTRACT_ID = 'CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG';
+const GAME_HUB_LOCAL_CONTRACT_ID = 'CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG'; //EXISITING GAME HUB ON TESTNET, IGNORE NAMING CONVENTION
+const VERIFIER_LOCAL_CONTRACT_ID = 'CBBEETBY3OUFHDH6M4R664HQ6IVXTFB5VQAGYBNKTT43YD355SE4ZW4U'; //ultra-honk verifier contract on TESTNET. ignore naming convention
 
 // const NETWORK = 'testnet';
 // const RPC_URL = 'https://soroban-testnet.stellar.org';
@@ -70,7 +70,7 @@ const VERIFIER_LOCAL_CONTRACT_ID = 'CDFWUHFR42QMUAL5TQ4FS65NXD7EGIKQ5DHKMVCMILM4
 
 
 // ── Network configuration ────────────────────────────────────────────────────
-const NETWORK = 'local' as const // 'local' | 'testnet'
+const NETWORK = 'testnet' as const // 'local' | 'testnet'
 
 const NETWORK_CONFIG = {
   local: {
@@ -311,7 +311,7 @@ const adminSecret = adminKeypair.secret();
 const deployed: Record<string, string> = { ...existingContractIds };
 
 // Ensure mock Game Hub exists so we can pass it into game constructors.
-let mockGameHubId = "CCFP3VUSWMKXTQOXVQKW56XZ3ZAZ357IZHQMAUGPT65GEKJAYIC3INOZ";
+let mockGameHubId = "CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG";
 // let mockGameHubId = existingContractIds[mock.packageName] || "";
 // if (shouldEnsureMock) {
 //   const candidateMockIds = [

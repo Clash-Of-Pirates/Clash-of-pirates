@@ -84,7 +84,7 @@ for (const contract of contractsToBind) {
   const contractId = contractIds[contract.packageName];
   console.log(`Generating bindings for ${contract.packageName}...`);
   try {
-    await $`stellar contract bindings typescript --contract-id ${contractId} --output-dir ${contract.bindingsOutDir} --network local --overwrite`;
+    await $`stellar contract bindings typescript --contract-id ${contractId} --output-dir ${contract.bindingsOutDir} --network testnet --overwrite`;
     console.log(`✅ ${contract.packageName} bindings generated\n`);
   } catch (error) {
     console.error(`❌ Failed to generate ${contract.packageName} bindings:`, error);
