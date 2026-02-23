@@ -762,6 +762,7 @@ export function ClashGame({
 
   // Card selection modal state 
   const [cardSelectionMode, setCardSelectionMode] = useState<{ turn: number; type: 'attack' | 'defense' } | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
   const quickstartAvailable =
     walletType === 'dev' &&
@@ -783,6 +784,23 @@ export function ClashGame({
       loadGameState();
     }
   }, [userAddress]);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor;
+      const isMobileUA = /android|iphone|ipad|ipod|mobile/i.test(userAgent);
+      const isSmallScreen = window.innerWidth < 1024; // treat < lg breakpoint as mobile
+  
+      setIsMobile(isMobileUA || isSmallScreen);
+    };
+  
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+  
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // 
 
   useEffect(() => {
     if (createMode === 'import' && !importPlayer2Points.trim()) setImportPlayer2Points(DEFAULT_POINTS);
@@ -1303,6 +1321,25 @@ export function ClashGame({
   const iWon = winnerAddr === userAddress;
 
   const movesAllFilled = selectedMoves.every(m => m.attack !== null && m.defense !== null);
+
+
+  if (isMobile) {
+      return (
+        <div className="desktop-required-overlay">
+          <div className="desktop-required-card">
+            <div className="desktop-icon">🖥️</div>
+            <h2>Desktop Required</h2>
+            <p>
+              Clash Pirates is designed for a cinematic desktop experience.
+              Please switch to a laptop or desktop browser to play.
+            </p>
+            <div className="desktop-hint">
+              ⚔️ Full animations • 🎬 Cinematic playback • 🎮 Better controls
+            </div>
+          </div>
+        </div>
+      );
+    }
 
   // ═══════════════════════════════════════════════════════════════════════
   // Render

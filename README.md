@@ -16,6 +16,11 @@
 
 Clash of Pirates is a strategic turn-based dueling game where two pirate captains face off in epic three-round battles. What makes it revolutionary is that **your moves are hidden using zero-knowledge cryptography** - your opponent can't see what you're planning, can't change their moves after seeing yours, and can't cheat. It's provably fair combat on the blockchain.
 
+### CONTRACT ADDRESS 
+- Clash of pirate contract : https://stellar.expert/explorer/testnet/contract/CDCXE2YL7FIWBA36U4U77VPBGYHOC37S6V3MGZJPLRLGP4JJYGANIE2T
+- Game Hub : CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG 
+- Ultrahonk Verifier contract : https://stellar.expert/explorer/testnet/contract/CBBEETBY3OUFHDH6M4R664HQ6IVXTFB5VQAGYBNKTT43YD355SE4ZW4U
+
 ### 🎯 How to Play
 
 #### The Setup
