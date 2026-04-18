@@ -5,6 +5,7 @@ members = [
   "contracts/mock-game-hub",
   "contracts/clash",
   "contracts/oz-smart-account",
+  "contracts/points_tracker",
 ]
 exclude = [
  "contracts/ultrahonk-soroban-contract",
