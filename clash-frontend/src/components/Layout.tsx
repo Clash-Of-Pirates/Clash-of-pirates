@@ -5,9 +5,13 @@ interface LayoutProps {
   title?: string;
   subtitle?: string;
   children: React.ReactNode;
+  /** Optional controls (e.g. global LEADERBOARD link) */
+  headerActions?: React.ReactNode;
+  /** Dim main content while a view transition is in progress */
+  contentBusy?: boolean;
 }
 
-export function Layout({ title, subtitle, children }: LayoutProps) {
+export function Layout({ title, subtitle, children, headerActions, contentBusy }: LayoutProps) {
   const resolvedTitle = title || import.meta.env.VITE_GAME_TITLE || 'Clash';
   const resolvedSubtitle = subtitle || import.meta.env.VITE_GAME_TAGLINE || 'Enter the arena';
 
@@ -30,12 +34,20 @@ export function Layout({ title, subtitle, children }: LayoutProps) {
       </div>
 
       <header className="app-header">
-        <div>
-          <h1 className="app-title">{resolvedTitle}</h1>
-          <p className="app-subtitle">{resolvedSubtitle}</p>
+        <div className="app-header-row">
+          <div>
+            <h1 className="app-title">{resolvedTitle}</h1>
+            <p className="app-subtitle">{resolvedSubtitle}</p>
+          </div>
+          {headerActions ? <div className="app-header-actions">{headerActions}</div> : null}
         </div>
       </header>
-      <div className="layout-content">{children}</div>
+      <div
+        className={`layout-content${contentBusy ? ' layout-content--busy' : ''}`}
+        aria-busy={contentBusy ? true : undefined}
+      >
+        {children}
+      </div>
       <footer className="app-footer">Soroban duel protocol secured by zero-knowledge proofs</footer>
       <div className="arena-vignette" />
       <div className="arena-flash" id="combat-flash" />
