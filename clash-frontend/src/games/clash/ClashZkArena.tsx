@@ -46,7 +46,7 @@ const PROOF_TERMINAL_LINES = [
   '> FINALIZING...',
 ] as const;
 
-const ROUND_BANNERS = ['THE OPENING GAMBIT', 'CLASH OF TITANS', 'THE FINAL RECKONING'] as const;
+const ROUND_TITLES = ['Round 1 — The Opening Gambit', 'Round 2 — Clash of Titans', 'Round 3 — The Final Reckoning'] as const;
 
 const FORGING_BUTTON_LINES = [
   '⚡ FORGING ZERO-KNOWLEDGE PROOF...',
@@ -57,10 +57,16 @@ const FORGING_BUTTON_LINES = [
 
 type SpriteAnim = 'idle' | 'attack' | 'hit' | 'block' | 'victory' | 'defeated';
 
-type AttackBroadcast = {
+/** Playback narration line — uses ATTACK_MOVES / DEFENSE_MOVES names only (via builders). */
+type NarrationModel = {
+  key: string;
   attackerIsP1: boolean;
-  moveIcon: string;
-  moveName: string;
+  hit: boolean;
+  atkIcon: string;
+  atkName: string;
+  dmg?: number;
+  defName?: string;
+  comboBonus?: number;
 };
 
 type BattlePlaybackUi = {
@@ -73,10 +79,13 @@ type BattlePlaybackUi = {
   floatText: string | null;
   floatTone: 'crimson' | 'cyan';
   floatSide: 'left' | 'right' | null;
-  showBanner: boolean;
-  showCardsP1: boolean;
-  showCardsP2: boolean;
-  attackBroadcast: AttackBroadcast | null;
+  showRoundTitle: boolean;
+  roundTitleText: string;
+  p1AtkCard: boolean;
+  p1DefCard: boolean;
+  p2AtkCard: boolean;
+  p2DefCard: boolean;
+  narration: NarrationModel | null;
   exchangeFlash: boolean;
   vignetteHit: boolean;
   showWinnerOverlay: boolean;
@@ -99,6 +108,141 @@ function attackMeta(a: Attack) {
 }
 function defenseMeta(d: Defense) {
   return DEFENSE_MOVES.find((m) => m.index === d) ?? DEFENSE_MOVES[0];
+}
+
+function PlaybackNarrationBar({ n, isP1Local }: { n: NarrationModel; isP1Local: boolean }) {
+  const body = '#C0C0D0';
+  const move = (
+    <>
+      <span className="playback-narr-move-icon" aria-hidden>
+        {n.atkIcon}
+      </span>{' '}
+      <span className="playback-narr-move-name">{n.atkName}</span>
+    </>
+  );
+  const combo =
+    n.comboBonus != null && n.comboBonus > 0 ? (
+      <span className="playback-narr-combo">
+        {' '}
+        (+{n.comboBonus} combo bonus)
+      </span>
+    ) : null;
+
+  if (n.attackerIsP1) {
+    if (n.hit && n.dmg != null) {
+      if (isP1Local) {
+        return (
+          <p className="playback-narr-text" style={{ color: body }}>
+            <span className="playback-narr-you">You</span> attacked your opponent with {move} —{' '}
+            <span className="playback-narr-dmg">{n.dmg}</span> damage!{combo}
+          </p>
+        );
+      }
+      return (
+        <p className="playback-narr-text" style={{ color: body }}>
+          <span className="playback-narr-opp">Opponent</span> attacked you with {move} —{' '}
+          <span className="playback-narr-dmg">{n.dmg}</span> damage!{combo}
+        </p>
+      );
+    }
+    const defNm = n.defName ?? defenseMeta(Defense.Block).name;
+    if (isP1Local) {
+      return (
+        <p className="playback-narr-text" style={{ color: body }}>
+          <span className="playback-narr-you">You</span> attacked with {move} — <span className="playback-narr-blocked">blocked</span> by their {defNm}!
+        </p>
+      );
+    }
+    return (
+      <p className="playback-narr-text" style={{ color: body }}>
+        <span className="playback-narr-opp">Opponent</span> attacked with {move} — <span className="playback-narr-blocked">blocked</span> by your {defNm}!
+      </p>
+    );
+  }
+
+  if (n.hit && n.dmg != null) {
+    if (isP1Local) {
+      return (
+        <p className="playback-narr-text" style={{ color: body }}>
+          <span className="playback-narr-opp">Opponent</span> attacked you with {move} —{' '}
+          <span className="playback-narr-dmg">{n.dmg}</span> damage!{combo}
+        </p>
+      );
+    }
+    return (
+      <p className="playback-narr-text" style={{ color: body }}>
+        <span className="playback-narr-you">You</span> attacked your opponent with {move} —{' '}
+        <span className="playback-narr-dmg">{n.dmg}</span> damage!{combo}
+      </p>
+    );
+  }
+  const defNm = n.defName ?? defenseMeta(Defense.Block).name;
+  if (isP1Local) {
+    return (
+      <p className="playback-narr-text" style={{ color: body }}>
+        <span className="playback-narr-opp">Opponent</span> attacked with {move} — <span className="playback-narr-blocked">blocked</span> by your {defNm}!
+      </p>
+    );
+  }
+  return (
+    <p className="playback-narr-text" style={{ color: body }}>
+      <span className="playback-narr-you">You</span> attacked with {move} — <span className="playback-narr-blocked">blocked</span> by their {defNm}!
+    </p>
+  );
+}
+
+const TIMING = {
+  ROUND_TITLE_HOLD: 1400,
+  ROUND_TITLE_FADEOUT: 400,
+  MOVE_REVEAL_DELAY: 600,
+  MOVE_REVEAL_ANIM: 500,
+  NARRATION_HOLD: 2200,
+  NARRATION_FADEOUT: 300,
+  ATTACK_ANIM_DURATION: 600,
+  IMPACT_FLOAT_DURATION: 900,
+  EXCHANGE_FLASH_HOLD: 700,
+  HP_BAR_ANIM: 900,
+  BETWEEN_PLAYERS: 1000,
+  BETWEEN_ROUNDS: 1800,
+  WINNER_REVEAL_DELAY: 1200,
+} as const;
+
+function buildNarrationP1(tr: DetailedTurnResult, r: number): NarrationModel {
+  const atk = attackMeta(tr.player1_move.attack);
+  const def = defenseMeta(tr.player2_move.defense);
+  const p2dmg = Number(tr.player2_damage_taken);
+  const base = atk.damage;
+  const hit = p2dmg > 0;
+  const comboBonus = hit && p2dmg > base ? p2dmg - base : undefined;
+  return {
+    key: `n-p1-${r}-${tr.turn}`,
+    attackerIsP1: true,
+    hit,
+    atkIcon: atk.icon,
+    atkName: atk.name,
+    dmg: hit ? p2dmg : undefined,
+    defName: hit ? undefined : def.name,
+    comboBonus,
+  };
+}
+
+function buildNarrationP2(tr: DetailedTurnResult, r: number): NarrationModel {
+  const atk = attackMeta(tr.player2_move.attack);
+  const def = defenseMeta(tr.player1_move.defense);
+  const p1dmg = Number(tr.player1_damage_taken);
+  const base = atk.damage;
+  const hit = p1dmg > 0;
+  const comboBonus = hit && p1dmg > base ? p1dmg - base : undefined;
+  return {
+    key: `n-p2-${r}-${tr.turn}`,
+    attackerIsP1: false,
+    hit,
+    atkIcon: atk.icon,
+    atkName: atk.name,
+    dmg: hit ? p1dmg : undefined,
+    defName: hit ? undefined : def.name,
+    comboBonus,
+  };
 }
 
 function MatrixRain({ active }: { active: boolean }) {
@@ -188,24 +332,24 @@ function MatrixRain({ active }: { active: boolean }) {
   );
 }
 
+type CommitPhase = 'idle' | 'proving' | 'committing' | 'done' | 'proof-error' | 'commit-error';
+
 function ProofTerminal({
-  busy,
   proofBundle,
-  error,
   sessionId,
   allMovesComplete,
-  onRetry,
+  commitPhase,
+  proofError,
+  onRetryProof,
 }: {
-  busy: boolean;
   proofBundle: ClashProofResult | null;
-  error: string | null;
   sessionId: number;
   allMovesComplete: boolean;
-  onRetry: () => void;
+  commitPhase: CommitPhase;
+  proofError: string | null;
+  onRetryProof: () => void;
 }) {
-  const generating = Boolean(busy && allMovesComplete && !proofBundle);
-  const valid = Boolean(proofBundle);
-  const terminalError = Boolean(error && allMovesComplete && !proofBundle && !busy);
+  const generating = commitPhase === 'proving';
 
   const [lines, setLines] = useState<string[]>([]);
   const [currentLine, setCurrentLine] = useState('');
@@ -225,13 +369,13 @@ function ProofTerminal({
       setCharIdx(0);
       setProgress(0);
       startRef.current = Date.now();
-    } else if (valid) {
+    } else if (proofBundle && (commitPhase === 'committing' || commitPhase === 'done' || commitPhase === 'commit-error')) {
       setRainActive(false);
       setProgress(100);
-    } else if (terminalError) {
+    } else if (commitPhase === 'proof-error') {
       setRainActive(false);
     }
-  }, [generating, valid, terminalError]);
+  }, [generating, proofBundle, commitPhase]);
 
   useEffect(() => {
     if (!generating) return;
@@ -249,8 +393,8 @@ function ProofTerminal({
   }, [generating]);
 
   useEffect(() => {
-    if (valid) setProgress(100);
-  }, [valid]);
+    if (proofBundle && (commitPhase === 'committing' || commitPhase === 'done' || commitPhase === 'commit-error')) setProgress(100);
+  }, [proofBundle, commitPhase]);
 
   useEffect(() => {
     if (!generating) return;
@@ -276,9 +420,9 @@ function ProofTerminal({
   }, [generating, lineIdx, charIdx]);
 
   let mode: 'idle' | 'generating' | 'valid' | 'error' = 'idle';
-  if (valid) mode = 'valid';
-  else if (generating) mode = 'generating';
-  else if (terminalError) mode = 'error';
+  if (generating) mode = 'generating';
+  else if (commitPhase === 'proof-error') mode = 'error';
+  else if (proofBundle && (commitPhase === 'committing' || commitPhase === 'done' || commitPhase === 'commit-error')) mode = 'valid';
   else mode = 'idle';
 
   const borderClass =
@@ -347,14 +491,14 @@ function ProofTerminal({
             <div className="zk-term-status-valid">&gt; STATUS: ██████████████████ VALID ✓</div>
           </div>
         )}
-        {mode === 'error' && error && (
+        {mode === 'error' && proofError && (
           <div className="zk-term-text zk-term-text--err">
             <div>&gt; ERROR: PROOF GENERATION FAILED</div>
-            <div className="zk-term-err-msg">{error}</div>
+            <div className="zk-term-err-msg">{proofError}</div>
             <div className="zk-term-cursor-line">
               &gt; <span className="zk-term-cursor zk-term-cursor--err" />
             </div>
-            <button type="button" className="zk-proof-retry-btn" onClick={onRetry}>
+            <button type="button" className="zk-proof-retry-btn" onClick={onRetryProof}>
               ↩ RETRY PROOF GENERATION
             </button>
           </div>
@@ -376,7 +520,7 @@ function PirateCharacter({
   const attackX = side === 'right' ? [0, -30, 0] : [0, 30, 0];
   const variants: Variants = {
     idle: { y: [0, -4, 0], transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' } },
-    attack: { x: attackX, transition: { duration: 0.4, times: [0, 0.55, 1], ease: ['easeOut', 'easeIn'] } },
+    attack: { x: attackX, transition: { duration: 0.6, times: [0, 0.55, 1], ease: ['easeOut', 'easeIn'] } },
     hit: {
       opacity: [1, 0.2, 1, 0.2, 1, 0.2, 1],
       x: [0, -8, 8, -4, 4, 0],
@@ -418,10 +562,13 @@ function useBattlePlayback(gamePlayback: GamePlayback | null, active: boolean, u
     floatText: null,
     floatTone: 'crimson',
     floatSide: null,
-    showBanner: false,
-    showCardsP1: false,
-    showCardsP2: false,
-    attackBroadcast: null,
+    showRoundTitle: false,
+    roundTitleText: '',
+    p1AtkCard: false,
+    p1DefCard: false,
+    p2AtkCard: false,
+    p2DefCard: false,
+    narration: null,
     exchangeFlash: false,
     vignetteHit: false,
     showWinnerOverlay: false,
@@ -460,107 +607,116 @@ function useBattlePlayback(gamePlayback: GamePlayback | null, active: boolean, u
     let acc = 0;
 
     const scheduleRound = (r: number, tr: DetailedTurnResult) => {
-      const p1Atk = attackMeta(tr.player1_move.attack);
-      const p2Atk = attackMeta(tr.player2_move.attack);
       const p2dmg = Number(tr.player2_damage_taken);
       const p1dmg = Number(tr.player1_damage_taken);
+      const title = ROUND_TITLES[Math.min(2, r)] ?? ROUND_TITLES[0];
 
       q(acc, () =>
         setUi((s) => ({
           ...s,
           round: r,
           segment: 'intro',
-          showBanner: true,
-          showCardsP1: false,
-          showCardsP2: false,
+          showRoundTitle: true,
+          roundTitleText: title,
+          p1AtkCard: false,
+          p1DefCard: false,
+          p2AtkCard: false,
+          p2DefCard: false,
+          narration: null,
           floatText: null,
           floatSide: null,
-          attackBroadcast: null,
           exchangeFlash: false,
           vignetteHit: false,
           p1Anim: 'idle',
           p2Anim: 'idle',
         }))
       );
-      acc += 800;
+      acc += TIMING.ROUND_TITLE_HOLD;
 
-      q(acc, () =>
-        setUi((s) => ({
-          ...s,
-          segment: 'p1Reveal',
-          showBanner: false,
-          showCardsP1: true,
-          showCardsP2: false,
-          attackBroadcast: {
-            attackerIsP1: true,
-            moveIcon: p1Atk.icon,
-            moveName: p1Atk.name.toUpperCase(),
-          },
-        }))
-      );
-      acc += 1450;
+      q(acc, () => setUi((s) => ({ ...s, showRoundTitle: false })));
+      acc += TIMING.ROUND_TITLE_FADEOUT + TIMING.MOVE_REVEAL_DELAY;
+
+      const p1CardT = acc;
+      q(p1CardT, () => setUi((s) => ({ ...s, segment: 'p1Reveal', p1AtkCard: true, p1DefCard: false, p2AtkCard: false, p2DefCard: false })));
+      q(p1CardT + 300, () => setUi((s) => ({ ...s, p1DefCard: true })));
+
+      const n1 = buildNarrationP1(tr, r);
+      const narr1T = p1CardT + TIMING.MOVE_REVEAL_ANIM;
+      q(narr1T, () => setUi((s) => ({ ...s, narration: n1 })));
+      q(narr1T + TIMING.NARRATION_HOLD, () => setUi((s) => ({ ...s, narration: null })));
+      acc = narr1T + TIMING.NARRATION_HOLD + TIMING.NARRATION_FADEOUT;
 
       q(acc, () =>
         setUi((s) => ({
           ...s,
           segment: 'p1Impact',
-          attackBroadcast: null,
-          showCardsP1: true,
+          p1AtkCard: false,
+          p1DefCard: false,
+          narration: null,
           p1Anim: 'attack',
           p2Anim: p2dmg > 0 ? 'hit' : 'block',
-          floatText: p2dmg > 0 ? `-${p2dmg}` : '🛡 BLOCKED',
+          floatText: p2dmg > 0 ? `-${p2dmg}` : 'BLOCKED',
           floatTone: p2dmg > 0 ? 'crimson' : 'cyan',
           floatSide: isP1Local ? 'right' : 'left',
           vignetteHit: p2dmg > 0,
         }))
       );
-      acc += 600;
-
-      q(acc, () => setUi((s) => ({ ...s, vignetteHit: false })));
-      acc += 80;
+      acc += TIMING.ATTACK_ANIM_DURATION + TIMING.IMPACT_FLOAT_DURATION;
 
       q(acc, () =>
         setUi((s) => ({
           ...s,
-          segment: 'p2Reveal',
-          showCardsP1: false,
-          showCardsP2: true,
+          vignetteHit: false,
           p1Anim: 'idle',
           p2Anim: 'idle',
           floatText: null,
           floatSide: null,
-          attackBroadcast: {
-            attackerIsP1: false,
-            moveIcon: p2Atk.icon,
-            moveName: p2Atk.name.toUpperCase(),
-          },
         }))
       );
-      acc += 1450;
+      acc += TIMING.BETWEEN_PLAYERS;
+
+      const p2CardT = acc;
+      q(p2CardT, () => setUi((s) => ({ ...s, segment: 'p2Reveal', p2AtkCard: true, p2DefCard: false })));
+      q(p2CardT + 300, () => setUi((s) => ({ ...s, p2DefCard: true })));
+
+      const n2 = buildNarrationP2(tr, r);
+      const narr2T = p2CardT + TIMING.MOVE_REVEAL_ANIM;
+      q(narr2T, () => setUi((s) => ({ ...s, narration: n2 })));
+      q(narr2T + TIMING.NARRATION_HOLD, () => setUi((s) => ({ ...s, narration: null })));
+      acc = narr2T + TIMING.NARRATION_HOLD + TIMING.NARRATION_FADEOUT;
 
       q(acc, () =>
         setUi((s) => ({
           ...s,
           segment: 'p2Impact',
-          attackBroadcast: null,
-          p1Anim: p1dmg > 0 ? 'hit' : 'block',
+          p2AtkCard: false,
+          p2DefCard: false,
+          narration: null,
           p2Anim: 'attack',
-          floatText: p1dmg > 0 ? `-${p1dmg}` : '🛡 BLOCKED',
+          p1Anim: p1dmg > 0 ? 'hit' : 'block',
+          floatText: p1dmg > 0 ? `-${p1dmg}` : 'BLOCKED',
           floatTone: p1dmg > 0 ? 'crimson' : 'cyan',
           floatSide: isP1Local ? 'left' : 'right',
           vignetteHit: p1dmg > 0,
         }))
       );
-      acc += 600;
+      acc += TIMING.ATTACK_ANIM_DURATION + TIMING.IMPACT_FLOAT_DURATION;
 
-      q(acc, () => setUi((s) => ({ ...s, vignetteHit: false })));
-      acc += 80;
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          vignetteHit: false,
+          p1Anim: 'idle',
+          p2Anim: 'idle',
+          floatText: null,
+          floatSide: null,
+        }))
+      );
 
       q(acc, () => setUi((s) => ({ ...s, segment: 'exchange', exchangeFlash: true })));
-      acc += 400;
+      acc += TIMING.EXCHANGE_FLASH_HOLD;
 
       q(acc, () => setUi((s) => ({ ...s, exchangeFlash: false })));
-      acc += 120;
 
       hp1 = Number(tr.player1_hp_remaining);
       hp2 = Number(tr.player2_hp_remaining);
@@ -569,7 +725,8 @@ function useBattlePlayback(gamePlayback: GamePlayback | null, active: boolean, u
         setUi((s) => ({
           ...s,
           segment: 'hp',
-          showCardsP2: false,
+          p2AtkCard: false,
+          p2DefCard: false,
           hp1,
           hp2,
           p1Anim: hp1 <= 0 ? 'defeated' : 'idle',
@@ -578,8 +735,9 @@ function useBattlePlayback(gamePlayback: GamePlayback | null, active: boolean, u
           floatSide: null,
         }))
       );
-      acc += 800;
-      acc += 500;
+      acc += TIMING.HP_BAR_ANIM;
+
+      if (r < 2) acc += TIMING.BETWEEN_ROUNDS;
     };
 
     turns.slice(0, 3).forEach((tr, r) => scheduleRound(r, tr));
@@ -599,7 +757,7 @@ function useBattlePlayback(gamePlayback: GamePlayback | null, active: boolean, u
         };
       })
     );
-    acc += 2000;
+    acc += TIMING.WINNER_REVEAL_DELAY;
 
     q(acc, () => setUi((s) => ({ ...s, showEndTable: true })));
     acc += 500;
@@ -632,6 +790,12 @@ type Props = {
   fastSigningBusy?: boolean;
   onSessionKeyActivated?: () => void;
   onSessionIdChange?: (sid: number) => void;
+  /** Session points from `getGame` (same scaling as stake). */
+  sessionTotalPoints?: bigint | null;
+  sessionPointsLoading?: boolean;
+  sessionPointsError?: boolean;
+  onRefreshSessionPoints?: () => void;
+  onBattleResolved?: () => void;
 };
 
 const CLASH_SESSION_ONBOARDING_KEY = 'clash_session_onboarding_seen';
@@ -681,6 +845,13 @@ function allMovesComplete(moves: SelectedMove[]) {
   return moves.every((m) => m.attack !== null && m.defense !== null);
 }
 
+function formatSessionPointsDisplay(raw: bigint | null | undefined): string {
+  if (raw === null || raw === undefined) return '--';
+  const n = Number(raw) / 10 ** POINTS_DECIMALS;
+  if (!Number.isFinite(n)) return '--';
+  return Math.round(n).toLocaleString();
+}
+
 export function ClashZkArena({
   userAddress,
   clashService,
@@ -691,6 +862,11 @@ export function ClashZkArena({
   fastSigningBusy = false,
   onSessionKeyActivated,
   onSessionIdChange,
+  sessionTotalPoints = null,
+  sessionPointsLoading = false,
+  sessionPointsError = false,
+  onRefreshSessionPoints,
+  onBattleResolved,
 }: Props) {
   const noir = useRef(new NoirService());
   const [phase, setPhase] = useState<ZkPhase>('create');
@@ -715,8 +891,20 @@ export function ClashZkArena({
   const [forgingLine, setForgingLine] = useState(0);
   const [showOnboardingDialog, setShowOnboardingDialog] = useState(false);
   const [sessionKeyToast, setSessionKeyToast] = useState(false);
+  const [commitPhase, setCommitPhase] = useState<CommitPhase>('idle');
+  const [commitTxError, setCommitTxError] = useState<string | null>(null);
+  const [oppRevealToast, setOppRevealToast] = useState(false);
+  const [waitingRevealFlash, setWaitingRevealFlash] = useState(false);
+  const [pollTick, setPollTick] = useState(0);
+  const pointsAtResolveRef = useRef<bigint | null>(null);
+  const wasWaitingForOppRevealRef = useRef(false);
 
   const battlePlayback = useBattlePlayback(gamePlayback, phase === 'complete' && Boolean(gamePlayback), userAddress);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setPollTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (hasActiveSessionKey) setShowOnboardingDialog(false);
@@ -734,8 +922,7 @@ export function ClashZkArena({
   }, [hasActiveSessionKey]);
 
   useEffect(() => {
-    const loading = busy && allMovesComplete(selectedMoves) && !proofBundle && phase === 'commit';
-    if (!loading) {
+    if (commitPhase !== 'proving') {
       setForgingLine(0);
       return;
     }
@@ -743,7 +930,7 @@ export function ClashZkArena({
       setForgingLine((i) => (i + 1) % FORGING_BUTTON_LINES.length);
     }, 2400);
     return () => clearInterval(id);
-  }, [busy, selectedMoves, proofBundle, phase]);
+  }, [commitPhase]);
 
   const loadPublicInputs = (sid: number, addr: string): Uint8Array | null => {
     try {
@@ -860,6 +1047,8 @@ export function ClashZkArena({
       setStoredPublicInputs(null);
       setProofBundle(null);
       setProofMovesKey(null);
+      setCommitPhase('idle');
+      setCommitTxError(null);
       setGamePlayback(null);
       setGameState(null);
       await clashService.startGameWithSmartAccount(
@@ -900,6 +1089,8 @@ export function ClashZkArena({
       setStoredPublicInputs(loadPublicInputs(sid, userAddress));
       setProofBundle(null);
       setProofMovesKey(null);
+      setCommitPhase('idle');
+      setCommitTxError(null);
       setGameState(game);
       setLoadSessionId('');
       if (game.has_battle_result) {
@@ -923,40 +1114,70 @@ export function ClashZkArena({
     }
   };
 
-  const handleGenerateProof = async () => {
+  const movesKey = useMemo(() => JSON.stringify(selectedMoves.map((m) => [m.attack, m.defense])), [selectedMoves]);
+  const proofMatchesMoves = Boolean(proofBundle && proofMovesKey === movesKey);
+
+  const handleForgeAndCommit = async () => {
     if (!allMovesComplete(selectedMoves)) return setError('Fill attack and defense for all 3 turns.');
-    setBusy(true);
+    setCommitTxError(null);
     setError(null);
+    setBusy(true);
+    setCommitPhase('proving');
+    let proofResult: ClashProofResult;
     try {
       const attacks = selectedMoves.map((m) => m.attack!) as [number, number, number];
       const defenses = selectedMoves.map((m) => m.defense!) as [number, number, number];
-      const proofResult = await noir.current.generateClashProof('duel_commit_circuit', {
+      proofResult = await noir.current.generateClashProof('duel_commit_circuit', {
         attacks,
         defenses,
         playerAddress: userAddress,
         sessionId,
       });
-      setProofBundle(proofResult);
-      setProofMovesKey(JSON.stringify(selectedMoves.map((m) => [m.attack, m.defense])));
-      setProofPulse('success');
-      setSuccess('Proof is valid. Ready to commit on-chain.');
     } catch (e) {
       setProofPulse('failed');
+      setCommitPhase('proof-error');
       setError(e instanceof Error ? e.message : 'Proof generation failed');
       setProofBundle(null);
       setProofMovesKey(null);
-    } finally {
       setBusy(false);
       setTimeout(() => setProofPulse('idle'), 600);
+      return;
+    }
+
+    const nextKey = JSON.stringify(selectedMoves.map((m) => [m.attack, m.defense]));
+    setProofBundle(proofResult);
+    setProofMovesKey(nextKey);
+    setProofPulse('success');
+    setTimeout(() => setProofPulse('idle'), 600);
+
+    setCommitPhase('committing');
+    try {
+      await clashService.commitMovesWithSmartAccount(
+        sessionId,
+        userAddress,
+        proofResult.publicInputs,
+        proofResult.proofBytes,
+        smartAccountService
+      );
+      savePublicInputs(sessionId, userAddress, proofResult.publicInputs);
+      setStoredPublicInputs(proofResult.publicInputs);
+      setCommitPhase('done');
+      setPhase('waiting_reveal');
+      setSuccess('Commit confirmed. Waiting for reveal phase.');
+      await loadGameState();
+    } catch (e) {
+      setCommitPhase('commit-error');
+      setCommitTxError(e instanceof Error ? e.message : 'Commit failed');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const movesKey = useMemo(() => JSON.stringify(selectedMoves.map((m) => [m.attack, m.defense])), [selectedMoves]);
-  const proofMatchesMoves = Boolean(proofBundle && proofMovesKey === movesKey);
-
-  const handleSubmitCommit = async () => {
-    if (!proofBundle || !proofMatchesMoves) return setError('Generate a valid proof that matches current moves.');
+  const handleRetryCommitOnly = async () => {
+    if (!proofBundle || !proofMatchesMoves) return setError('Proof does not match current moves.');
+    setCommitTxError(null);
     setBusy(true);
+    setCommitPhase('committing');
     try {
       await clashService.commitMovesWithSmartAccount(
         sessionId,
@@ -967,13 +1188,13 @@ export function ClashZkArena({
       );
       savePublicInputs(sessionId, userAddress, proofBundle.publicInputs);
       setStoredPublicInputs(proofBundle.publicInputs);
-      setProofBundle(null);
-      setProofMovesKey(null);
+      setCommitPhase('done');
       setPhase('waiting_reveal');
       setSuccess('Commit confirmed. Waiting for reveal phase.');
       await loadGameState();
     } catch (e) {
-      setCriticalError(e instanceof Error ? e.message : 'Commit failed');
+      setCommitPhase('commit-error');
+      setCommitTxError(e instanceof Error ? e.message : 'Commit failed');
     } finally {
       setBusy(false);
     }
@@ -1008,6 +1229,7 @@ export function ClashZkArena({
       if (pb) setGamePlayback(pb);
       setPhase('complete');
       setSuccess('Battle resolved.');
+      onBattleResolved?.();
     } catch (e) {
       setCriticalError(e instanceof Error ? e.message : 'Resolve failed');
     } finally {
@@ -1030,17 +1252,30 @@ export function ClashZkArena({
     setProofMovesKey(null);
     setError(null);
     setSuccess(null);
+    setCommitPhase('idle');
+    setCommitTxError(null);
   };
 
   const myStep = useMemo(() => {
     if (phase === 'create') return 0;
-    if (phase === 'commit') return proofBundle ? 2 : 1;
+    if (phase === 'commit') {
+      const step2 =
+        commitPhase === 'proving' ||
+        commitPhase === 'committing' ||
+        commitPhase === 'done' ||
+        commitPhase === 'commit-error' ||
+        Boolean(proofBundle);
+      return step2 ? 2 : 1;
+    }
     if (phase === 'waiting_reveal') return 3;
     if (phase === 'reveal') return 4;
     return 5;
-  }, [phase, proofBundle]);
+  }, [phase, proofBundle, commitPhase]);
 
-  const syncLabel = lastSyncedAt ? `${Math.max(0, Math.round((Date.now() - lastSyncedAt) / 1000))}s ago` : '—';
+  const syncLabel = useMemo(() => {
+    if (!lastSyncedAt) return '—';
+    return `${Math.max(0, Math.floor((Date.now() - lastSyncedAt) / 1000))}s ago`;
+  }, [lastSyncedAt, pollTick]);
 
   const strategyLabel = useMemo(() => {
     const attacks = selectedMoves.map((m) => m.attack).filter((v): v is number => v !== null);
@@ -1094,13 +1329,55 @@ export function ClashZkArena({
   };
 
   const movesReady = allMovesComplete(selectedMoves);
-  const proofLoading = Boolean(busy && movesReady && !proofBundle && phase === 'commit');
+  const proofLoading = commitPhase === 'proving';
+  const p1r = gameState?.player1_commitment?.has_revealed ?? false;
+  const p2r = gameState?.player2_commitment?.has_revealed ?? false;
+  const imP1 = gameState?.player1 === userAddress;
+  const myRevealed = imP1 ? p1r : gameState?.player2 === userAddress ? p2r : false;
+  const bothRevealed = p1r && p2r;
+
+  const movesLocked = useMemo(() => {
+    if (phase === 'waiting_reveal') return true;
+    if (phase !== 'commit') return false;
+    if (commitPhase === 'proving' || commitPhase === 'committing' || commitPhase === 'done') return true;
+    if (commitPhase === 'commit-error' && proofBundle) return true;
+    return Boolean(proofBundle && proofMatchesMoves);
+  }, [phase, commitPhase, proofBundle, proofMatchesMoves]);
+
+  useEffect(() => {
+    if (phase === 'resolve' && gameState) {
+      const raw = gameState.player1 === userAddress ? gameState.player1_points : gameState.player2_points;
+      pointsAtResolveRef.current = BigInt(String(raw));
+    }
+  }, [phase, gameState, userAddress]);
+
+  useEffect(() => {
+    if (phase === 'reveal' && myRevealed && !bothRevealed) {
+      wasWaitingForOppRevealRef.current = true;
+    }
+  }, [phase, myRevealed, bothRevealed]);
+
+  useEffect(() => {
+    if (phase === 'resolve' && wasWaitingForOppRevealRef.current) {
+      wasWaitingForOppRevealRef.current = false;
+      setWaitingRevealFlash(true);
+      setOppRevealToast(true);
+      const t = window.setTimeout(() => setOppRevealToast(false), 3000);
+      const t2 = window.setTimeout(() => setWaitingRevealFlash(false), 400);
+      return () => {
+        clearTimeout(t);
+        clearTimeout(t2);
+      };
+    }
+  }, [phase]);
 
   const battleCryBtnClass = [
     'battle-cry-btn',
     !movesReady ? 'battle-cry-btn--locked' : '',
-    movesReady && !proofLoading ? 'battle-cry-btn--ready' : '',
+    movesReady && commitPhase === 'idle' && !proofLoading ? 'battle-cry-btn--ready' : '',
     proofLoading ? 'battle-cry-btn--loading' : '',
+    commitPhase === 'committing' ? 'battle-cry-btn--committing' : '',
+    commitPhase === 'proof-error' || commitPhase === 'commit-error' ? 'battle-cry-btn--proof-fail' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -1143,6 +1420,16 @@ export function ClashZkArena({
           className="clash-session-toast"
         >
           ⚡ SESSION KEY ACTIVE — ENTER THE ARENA
+        </motion.div>
+      )}
+      {oppRevealToast && (
+        <motion.div
+          initial={{ y: -24, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="clash-opp-reveal-toast"
+        >
+          ⚔ Opponent revealed — RESOLVE THE BATTLE
         </motion.div>
       )}
       {showOnboardingDialog && (
@@ -1262,8 +1549,8 @@ export function ClashZkArena({
                         initial={{ y: 20, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
                         transition={{ duration: 0.3, delay: i * 0.08 }}
-                        className={`turn-card ${complete ? 'complete' : partial ? 'partial' : 'empty'} ${proofBundle ? 'proof-locked' : ''}`}
-                        title={proofBundle ? 'Clear proof to re-edit moves' : ''}
+                        className={`turn-card ${complete ? 'complete' : partial ? 'partial' : 'empty'} ${movesLocked ? 'proof-locked' : ''}`}
+                        title={movesLocked ? 'Moves are locked for this step' : ''}
                       >
                         <strong>TURN {i + 1}</strong>
                         <div className={`row-label ${m.attack === null ? 'muted' : ''}`}>
@@ -1277,7 +1564,7 @@ export function ClashZkArena({
                               whileHover={{ scale: 1.06 }}
                               animate={m.attack === atk.index ? { scale: [1, 1.1, 1] } : undefined}
                               transition={{ duration: 0.2 }}
-                              disabled={Boolean(proofBundle) || busy || phase === 'waiting_reveal'}
+                              disabled={movesLocked || busy || phase === 'waiting_reveal'}
                               onClick={() => selectAttack(i, atk.index)}
                               className={`move-choice attack ${m.attack === atk.index ? 'selected' : ''}`}
                             >
@@ -1285,7 +1572,7 @@ export function ClashZkArena({
                               <span className="name">{atk.name}</span>
                               <span className="meta">{atk.damage} HP</span>
                               {m.attack === atk.index && <span className="pick-flash attack" />}
-                              {proofBundle && (
+                              {movesLocked && proofBundle && (
                                 <span className="mini-lock">
                                   <Lock size={10} />
                                 </span>
@@ -1304,7 +1591,7 @@ export function ClashZkArena({
                               whileHover={{ scale: 1.06 }}
                               animate={m.defense === def.index ? { scale: [1, 1.1, 1] } : undefined}
                               transition={{ duration: 0.2 }}
-                              disabled={Boolean(proofBundle) || busy || phase === 'waiting_reveal'}
+                              disabled={movesLocked || busy || phase === 'waiting_reveal'}
                               onClick={() => selectDefense(i, def.index)}
                               className={`move-choice defense ${m.defense === def.index ? 'selected' : ''} ${
                                 defenseHintPulse?.turn === i && defenseHintPulse.defense === def.index ? 'hint-pulse' : ''
@@ -1314,7 +1601,7 @@ export function ClashZkArena({
                               <span className="name">{def.label}</span>
                               <span className="meta">stops {def.stopsIcon}</span>
                               {m.defense === def.index && <span className="pick-flash defense" />}
-                              {proofBundle && (
+                              {movesLocked && proofBundle && (
                                 <span className="mini-lock">
                                   <Lock size={10} />
                                 </span>
@@ -1330,9 +1617,9 @@ export function ClashZkArena({
                             ))}
                           </div>
                         )}
-                        {proofBundle && (
+                        {movesLocked && proofBundle && (
                           <div className="turn-lock-overlay">
-                            <Lock size={16} /> <small>Clear proof to re-edit moves</small>
+                            <Lock size={16} /> <small>Moves locked while proof / commit is in progress</small>
                           </div>
                         )}
                       </motion.div>
@@ -1370,10 +1657,21 @@ export function ClashZkArena({
                     <motion.button
                       type="button"
                       className={battleCryBtnClass}
-                      disabled={!movesReady || proofLoading || busy}
-                      onClick={() => void handleGenerateProof()}
+                      disabled={
+                        !movesReady ||
+                        busy ||
+                        commitPhase === 'proving' ||
+                        commitPhase === 'committing' ||
+                        commitPhase === 'done'
+                      }
+                      onClick={() => {
+                        if (commitPhase === 'commit-error') void handleRetryCommitOnly();
+                        else void handleForgeAndCommit();
+                      }}
                       title={!movesReady ? 'Select attack and defense for all 3 turns' : ''}
-                      whileHover={movesReady && !proofLoading ? { scale: 1.01 } : undefined}
+                      whileHover={
+                        movesReady && commitPhase === 'idle' && !proofLoading ? { scale: 1.01 } : undefined
+                      }
                     >
                       {!movesReady && (
                         <>
@@ -1383,29 +1681,32 @@ export function ClashZkArena({
                           SEAL YOUR FATE — LOCK MOVES
                         </>
                       )}
-                      {movesReady && !proofLoading && (
+                      {movesReady && commitPhase === 'idle' && (
                         <>
-                          <span aria-hidden>⚔</span> COMMIT TO THE DUEL — FORGE THE PROOF
+                          <span aria-hidden>⚔</span> FORGE PROOF & COMMIT TO CHAIN
                         </>
                       )}
-                      {proofLoading && (
+                      {commitPhase === 'proving' && (
                         <span className="battle-cry-loading-line">
                           {FORGING_BUTTON_LINES[forgingLine]}
                           <span className="battle-cry-type-cursor" />
                         </span>
                       )}
+                      {commitPhase === 'committing' && <span>⛓ COMMITTING TO SOROBAN...</span>}
+                      {commitPhase === 'proof-error' && <span>↩ PROOF FAILED — RETRY</span>}
+                      {commitPhase === 'commit-error' && <span>↩ COMMIT FAILED — RETRY</span>}
                     </motion.button>
+                    {commitTxError && commitPhase === 'commit-error' && (
+                      <p className="commit-tx-error mono">Transaction failed: {commitTxError}</p>
+                    )}
                     <ProofTerminal
-                      busy={busy}
                       proofBundle={proofBundle}
-                      error={error}
                       sessionId={sessionId}
                       allMovesComplete={movesReady}
-                      onRetry={() => void handleGenerateProof()}
+                      commitPhase={commitPhase}
+                      proofError={error}
+                      onRetryProof={() => void handleForgeAndCommit()}
                     />
-                    <button className="btn-arena-primary" disabled={busy || !proofBundle || !proofMatchesMoves} onClick={() => void handleSubmitCommit()}>
-                      {busy ? 'Submitting to Soroban...' : '⚔ COMMIT MOVES ON-CHAIN'}
-                    </button>
                   </>
                 )}
                 {phase === 'waiting_reveal' && <p className="status-pill warning">Waiting for opponent commit...</p>}
@@ -1415,25 +1716,57 @@ export function ClashZkArena({
             {phase === 'reveal' && (
               <>
                 <h3>Reveal</h3>
-                <p className="mono dim">{storedPublicInputs ? `public_inputs bytes: ${storedPublicInputs.length}` : 'No stored inputs found'}</p>
-                {!storedPublicInputs && <p className="inline-error">Reveal locked: commit data missing.</p>}
-                <button className="btn-arena-secondary" disabled={busy || !storedPublicInputs} onClick={() => void handleReveal()}>
-                  👁 REVEAL MOVES
-                </button>
+                {!myRevealed && (
+                  <>
+                    <p className="mono dim">{storedPublicInputs ? `public_inputs bytes: ${storedPublicInputs.length}` : 'No stored inputs found'}</p>
+                    {!storedPublicInputs && <p className="inline-error">Reveal locked: commit data missing.</p>}
+                    <button className="btn-arena-secondary" disabled={busy || !storedPublicInputs} onClick={() => void handleReveal()}>
+                      👁 REVEAL MOVES
+                    </button>
+                  </>
+                )}
+                {myRevealed && !bothRevealed && (
+                  <motion.div
+                    className={`reveal-wait-card ${waitingRevealFlash ? 'reveal-wait-card--flash' : ''}`}
+                    initial={{ opacity: 1 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div className="reveal-wait-title">
+                      <span aria-hidden>⏳</span> MOVES REVEALED
+                    </div>
+                    <p className="reveal-wait-lead">Waiting for your opponent to reveal their moves…</p>
+                    <p className="reveal-wait-italic">Your commitment is locked in. The moment they reveal, the battle can be resolved.</p>
+                    <div className="reveal-wait-poll-row">
+                      <span className="reveal-wait-dots" aria-hidden>
+                        <span className="reveal-wait-dot" />
+                        <span className="reveal-wait-dot" />
+                        <span className="reveal-wait-dot" />
+                      </span>
+                      <span className="reveal-wait-last mono">Last checked: {syncLabel}</span>
+                    </div>
+                  </motion.div>
+                )}
               </>
             )}
 
             {phase === 'resolve' && (
-              <>
+              <motion.div
+                className="resolve-battle-wrap"
+                initial={{ y: 16, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+              >
                 <h3>Resolve Battle</h3>
                 <button className="btn-arena-amber" disabled={busy} onClick={() => void handleResolve()}>
                   ⚔ RESOLVE BATTLE
                 </button>
-              </>
+              </motion.div>
             )}
 
             {success && <p className="status-pill success">{success}</p>}
-            {error && <p className="status-pill error">{error}</p>}
+            {error && commitPhase !== 'proof-error' && <p className="status-pill error">{error}</p>}
           </motion.div>
         </AnimatePresence>
       )}
@@ -1446,7 +1779,6 @@ export function ClashZkArena({
             const p2Def = defenseMeta(tr.player2_move.defense);
             const p2Atk = attackMeta(tr.player2_move.attack);
             const p1Def = defenseMeta(tr.player1_move.defense);
-            const banner = ROUND_BANNERS[Math.min(2, battlePlayback.ui.round)] ?? ROUND_BANNERS[0];
             const isP1Local = isLocalPlayer(gamePlayback.player1, userAddress);
             const leftAnim = isP1Local ? battlePlayback.ui.p1Anim : battlePlayback.ui.p2Anim;
             const rightAnim = isP1Local ? battlePlayback.ui.p2Anim : battlePlayback.ui.p1Anim;
@@ -1454,41 +1786,26 @@ export function ClashZkArena({
             const oppHp = isP1Local ? battlePlayback.ui.hp2 : battlePlayback.ui.hp1;
             const localAddr = isP1Local ? gamePlayback.player1 : gamePlayback.player2;
             const oppAddr = isP1Local ? gamePlayback.player2 : gamePlayback.player1;
-            const ab = battlePlayback.ui.attackBroadcast;
-            const attackerYou = ab ? (ab.attackerIsP1 ? isP1Local : !isP1Local) : false;
             const npTier = (hp: number) => (hp > 60 ? 'hi' : hp > 30 ? 'mid' : 'low');
+            const narr = battlePlayback.ui.narration;
+            const duelDeltaPts =
+              sessionTotalPoints != null && pointsAtResolveRef.current != null
+                ? sessionTotalPoints - pointsAtResolveRef.current
+                : null;
 
             return (
               <>
                 <AnimatePresence>
-                  {ab && (
+                  {narr && (
                     <motion.div
-                      key={`ab-${ab.attackerIsP1}-${battlePlayback.ui.round}-${battlePlayback.ui.segment}`}
-                      className="attack-broadcast-bar"
-                      initial={{ y: -44, opacity: 0 }}
+                      key={narr.key}
+                      className="playback-narration-bar"
+                      initial={{ y: -56, opacity: 0 }}
                       animate={{ y: 0, opacity: 1 }}
-                      exit={{ opacity: 0 }}
+                      exit={{ opacity: 0, transition: { duration: 0.3, ease: 'easeOut' } }}
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                     >
-                      <span className={attackerYou ? 'attack-broadcast-att' : 'attack-broadcast-def'}>
-                        {attackerYou ? 'YOU' : 'OPPONENT'}
-                      </span>
-                      <span className="attack-broadcast-ico" aria-hidden>
-                        ⚔️
-                      </span>
-                      <span className="attack-broadcast-move">
-                        {ab.moveIcon} {ab.moveName}
-                      </span>
-                      <motion.span
-                        className="attack-broadcast-arrow"
-                        animate={{ x: [-6, 6, -6] }}
-                        transition={{ duration: 0.4, repeat: Infinity, ease: 'easeInOut' }}
-                      >
-                        →
-                      </motion.span>
-                      <span className={attackerYou ? 'attack-broadcast-def' : 'attack-broadcast-att'}>
-                        {attackerYou ? 'OPPONENT' : 'YOU'}
-                      </span>
+                      <PlaybackNarrationBar n={narr} isP1Local={isP1Local} />
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -1499,7 +1816,7 @@ export function ClashZkArena({
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      transition={{ duration: 0.2 }}
+                      transition={{ duration: 0.35 }}
                     >
                       ⚔ DAMAGE APPLIED ⚔
                     </motion.div>
@@ -1520,7 +1837,7 @@ export function ClashZkArena({
                             className={`cinematic-float-above ${battlePlayback.ui.floatTone === 'cyan' ? 'cyan' : 'crimson'}`}
                             initial={{ y: 8, opacity: 1 }}
                             animate={{ y: -28, opacity: 0 }}
-                            transition={{ duration: 0.8, ease: 'easeOut' }}
+                            transition={{ duration: 0.9, ease: 'easeOut' }}
                           >
                             {battlePlayback.ui.floatText}
                           </motion.div>
@@ -1532,11 +1849,9 @@ export function ClashZkArena({
                         <div className="cinematic-nameplate-hp">
                           <span className="cinematic-nameplate-hp-label">HP:</span>
                           <div className="nameplate-hp-track">
-                            <motion.div
+                            <div
                               className={`nameplate-hp-fill nameplate-hp-fill--${npTier(localHp)}`}
-                              initial={false}
-                              animate={{ width: `${localHp}%` }}
-                              transition={{ duration: 0.8, ease: 'easeOut' }}
+                              style={{ width: `${localHp}%` }}
                             />
                           </div>
                           <span className="cinematic-nameplate-hp-num">{localHp}</span>
@@ -1545,58 +1860,45 @@ export function ClashZkArena({
                     </div>
                     <div className="cinematic-center">
                       <AnimatePresence>
-                        {battlePlayback.ui.showBanner && (
+                        {battlePlayback.ui.showRoundTitle && (
                           <motion.div
-                            key={banner}
-                            className="cinematic-round-banner"
+                            key={battlePlayback.ui.roundTitleText}
+                            className="cinematic-round-banner cinematic-round-banner--title"
                             initial={{ y: -40, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 0.35 }}
                           >
-                            ROUND {battlePlayback.ui.round + 1}: {banner}
+                            {battlePlayback.ui.roundTitleText}
                           </motion.div>
                         )}
                       </AnimatePresence>
 
                       <div className="cinematic-cards-row">
                         <AnimatePresence>
-                          {battlePlayback.ui.showCardsP1 && (
+                          {battlePlayback.ui.p1AtkCard && (
                             <motion.div
                               key={`c1-${battlePlayback.ui.round}`}
                               className="cinematic-move-card"
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               exit={{ opacity: 0 }}
-                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                              transition={{ type: 'spring', stiffness: 200, damping: 18 }}
                             >
                               <span>{p1Atk.icon}</span>
                               <span>{p1Atk.name}</span>
                             </motion.div>
                           )}
                         </AnimatePresence>
-                        <motion.span
-                          className="cinematic-arrow"
-                          animate={
-                            battlePlayback.ui.segment === 'p1Impact'
-                              ? { x: [0, 60], opacity: [1, 0] }
-                              : battlePlayback.ui.segment === 'p2Impact'
-                                ? { x: [0, -60], opacity: [1, 0] }
-                                : { x: 0, opacity: 0.35 }
-                          }
-                          transition={{ duration: 0.5, ease: 'easeOut' }}
-                        >
-                          →
-                        </motion.span>
                         <AnimatePresence>
-                          {battlePlayback.ui.showCardsP1 && (
+                          {battlePlayback.ui.p1DefCard && (
                             <motion.div
                               key={`d2-${battlePlayback.ui.round}`}
                               className="cinematic-move-card defense"
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               exit={{ opacity: 0 }}
-                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                              transition={{ type: 'spring', stiffness: 200, damping: 18 }}
                             >
                               <span>{p2Def.icon}</span>
                               <span>{p2Def.label}</span>
@@ -1607,30 +1909,29 @@ export function ClashZkArena({
 
                       <div className="cinematic-cards-row cinematic-cards-row--p2">
                         <AnimatePresence>
-                          {battlePlayback.ui.showCardsP2 && (
+                          {battlePlayback.ui.p2AtkCard && (
                             <motion.div
                               key={`c2-${battlePlayback.ui.round}`}
                               className="cinematic-move-card"
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               exit={{ opacity: 0 }}
-                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                              transition={{ type: 'spring', stiffness: 200, damping: 18 }}
                             >
                               <span>{p2Atk.icon}</span>
                               <span>{p2Atk.name}</span>
                             </motion.div>
                           )}
                         </AnimatePresence>
-                        <span className="cinematic-arrow cinematic-arrow--flip">→</span>
                         <AnimatePresence>
-                          {battlePlayback.ui.showCardsP2 && (
+                          {battlePlayback.ui.p2DefCard && (
                             <motion.div
                               key={`d1-${battlePlayback.ui.round}`}
                               className="cinematic-move-card defense"
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               exit={{ opacity: 0 }}
-                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                              transition={{ type: 'spring', stiffness: 200, damping: 18 }}
                             >
                               <span>{p1Def.icon}</span>
                               <span>{p1Def.label}</span>
@@ -1651,7 +1952,7 @@ export function ClashZkArena({
                             className={`cinematic-float-above ${battlePlayback.ui.floatTone === 'cyan' ? 'cyan' : 'crimson'}`}
                             initial={{ y: 8, opacity: 1 }}
                             animate={{ y: -28, opacity: 0 }}
-                            transition={{ duration: 0.8, ease: 'easeOut' }}
+                            transition={{ duration: 0.9, ease: 'easeOut' }}
                           >
                             {battlePlayback.ui.floatText}
                           </motion.div>
@@ -1663,11 +1964,9 @@ export function ClashZkArena({
                         <div className="cinematic-nameplate-hp">
                           <span className="cinematic-nameplate-hp-label">HP:</span>
                           <div className="nameplate-hp-track">
-                            <motion.div
+                            <div
                               className={`nameplate-hp-fill nameplate-hp-fill--${npTier(oppHp)}`}
-                              initial={false}
-                              animate={{ width: `${oppHp}%` }}
-                              transition={{ duration: 0.8, ease: 'easeOut' }}
+                              style={{ width: `${oppHp}%` }}
                             />
                           </div>
                           <span className="cinematic-nameplate-hp-num">{oppHp}</span>
@@ -1728,6 +2027,44 @@ export function ClashZkArena({
                 </AnimatePresence>
 
                 {battlePlayback.ui.showEndTable && (
+                  <>
+                  <div className="cinematic-points-summary">
+                    <div className="cinematic-points-duel">
+                      YOUR POINTS THIS DUEL:{' '}
+                      <span
+                        className={
+                          duelDeltaPts == null
+                            ? 'duel-pts-na'
+                            : battlePlayback.ui.outcome === 'win'
+                              ? 'duel-pts-win'
+                              : battlePlayback.ui.outcome === 'loss'
+                                ? 'duel-pts-loss'
+                                : 'duel-pts-draw'
+                        }
+                      >
+                        {duelDeltaPts == null
+                          ? '—'
+                          : (() => {
+                              const n = Number(duelDeltaPts) / 10 ** POINTS_DECIMALS;
+                              if (!Number.isFinite(n)) return '—';
+                              const r = Math.round(n);
+                              const s = Math.abs(r).toLocaleString();
+                              return r > 0 ? `+${s}` : r < 0 ? `−${s}` : '0';
+                            })()}
+                      </span>
+                    </div>
+                    <div className="cinematic-points-total">
+                      TOTAL POINTS:{' '}
+                      <span className="cinematic-points-total-val">
+                        {sessionPointsLoading ? '-- pts' : `${formatSessionPointsDisplay(sessionTotalPoints)} pts`}
+                      </span>
+                      {sessionPointsError && onRefreshSessionPoints && (
+                        <button type="button" className="cinematic-points-retry" onClick={() => onRefreshSessionPoints()} aria-label="Retry points">
+                          ↻
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   <div className="cinematic-summary-table-wrap">
                     <table className="cinematic-summary-table">
                       <thead>
@@ -1758,6 +2095,7 @@ export function ClashZkArena({
                       </tbody>
                     </table>
                   </div>
+                  </>
                 )}
 
                 {battlePlayback.ui.showEndButtons && (

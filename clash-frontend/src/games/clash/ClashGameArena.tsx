@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Lock, Power, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Lock, Power, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { rpc } from '@stellar/stellar-sdk';
 import { SmartAccountService } from './smartAccountService';
 import { ClashGameService } from './clashService';
@@ -58,6 +58,15 @@ function formatBalanceNum(raw: string | undefined | null): string {
   return n.toFixed(3);
 }
 
+const POINTS_DECIMALS = 7;
+
+function formatSessionPointsDisplay(raw: bigint | null): string {
+  if (raw === null) return '--';
+  const n = Number(raw) / 10 ** POINTS_DECIMALS;
+  if (!Number.isFinite(n)) return '--';
+  return Math.round(n).toLocaleString();
+}
+
 export function ClashGameArena() {
   const [smartAccountService] = useState(
     () => new SmartAccountService(RPC_URL, NETWORK_PASSPHRASE, ACCOUNT_WASM_HASH, WEBAUTHN_VERIFIER)
@@ -76,12 +85,46 @@ export function ClashGameArena() {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [sessionExpiresLedger, setSessionExpiresLedger] = useState<number | null>(null);
   const [hasActiveSessionKey, setHasActiveSessionKey] = useState(false);
+  const [sessionPoints, setSessionPoints] = useState<bigint | null>(null);
+  const [sessionPointsLoading, setSessionPointsLoading] = useState(false);
+  const [sessionPointsError, setSessionPointsError] = useState(false);
   const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const balanceAnimFromRef = useRef(0);
 
   const refreshFastSigningState = useCallback(() => {
     setFastSigning(smartAccountService.hasClashSigningSession());
   }, [smartAccountService]);
+
+  const fetchSessionPoints = useCallback(async () => {
+    if (!userAddress || !activeSessionId?.trim()) {
+      setSessionPoints(null);
+      setSessionPointsLoading(false);
+      setSessionPointsError(false);
+      return;
+    }
+    const sid = parseInt(activeSessionId, 10);
+    if (Number.isNaN(sid) || sid <= 0) {
+      setSessionPoints(null);
+      return;
+    }
+    setSessionPointsLoading(true);
+    setSessionPointsError(false);
+    try {
+      const g = await clashService.getGame(sid);
+      if (!g) throw new Error('Game not found');
+      const raw = g.player1 === userAddress ? g.player1_points : g.player2_points;
+      setSessionPoints(BigInt(String(raw)));
+    } catch {
+      setSessionPointsError(true);
+      setSessionPoints(null);
+    } finally {
+      setSessionPointsLoading(false);
+    }
+  }, [userAddress, activeSessionId, clashService]);
+
+  useEffect(() => {
+    void fetchSessionPoints();
+  }, [fetchSessionPoints]);
 
   const evaluateSessionKeyUi = useCallback(
     async (address: string | null) => {
@@ -406,6 +449,25 @@ export function ClashGameArena() {
                 <strong className="mono">{activeSessionId || 'Pending'}</strong>
               </div>
               {activeSessionId && <CopyChip label="SESSION" value={activeSessionId} />}
+              <div className="rail-card rail-card-points">
+                <span className="rail-points-label">⚓ TOTAL POINTS</span>
+                <div className="rail-points-row">
+                  <strong className="rail-points-val">
+                    {sessionPointsLoading ? '-- pts' : `${formatSessionPointsDisplay(sessionPoints)} pts`}
+                  </strong>
+                  {sessionPointsError && (
+                    <button
+                      type="button"
+                      className="rail-points-retry"
+                      onClick={() => void fetchSessionPoints()}
+                      aria-label="Retry loading points"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  )}
+                </div>
+                <small className="rail-points-sub">Across duels in this session (on-chain)</small>
+              </div>
               <div className="rail-card">
                 <span>Balance</span>
                 <strong className={`mono rail-balance ${balanceLoading ? 'rail-balance-loading' : ''}`}>
@@ -470,6 +532,11 @@ export function ClashGameArena() {
                   void evaluateSessionKeyUi(userAddress);
                 }}
                 onSessionIdChange={(sid) => setActiveSessionId(String(sid))}
+                sessionTotalPoints={sessionPoints}
+                sessionPointsLoading={sessionPointsLoading}
+                sessionPointsError={sessionPointsError}
+                onRefreshSessionPoints={() => void fetchSessionPoints()}
+                onBattleResolved={() => void fetchSessionPoints()}
               />
             </section>
           </motion.div>

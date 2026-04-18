@@ -879,6 +879,26 @@ button:disabled {
   pointer-events: none;
 }
 
+.battle-cry-btn--committing {
+  background: #0d0d15;
+  border: 1px solid #00d4ff;
+  color: #00d4ff;
+  cursor: default;
+  pointer-events: none;
+}
+
+.battle-cry-btn--proof-fail {
+  background: #0d0d15;
+  border: 1px solid #e5133a;
+  color: #e5133a;
+}
+
+.commit-tx-error {
+  margin-top: 0.45rem;
+  font-size: 12px;
+  color: #e5133a;
+}
+
 .battle-cry-loading-line {
   display: inline-flex;
   align-items: center;
@@ -1502,6 +1522,256 @@ button:disabled {
   }
 }
 
+/* Playback narration (Clash ZK) */
+.playback-narration-bar {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-height: 52px;
+  padding: 0.5rem 16px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: rgba(10, 10, 15, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.playback-narr-text {
+  margin: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+  max-width: 100%;
+}
+.playback-narr-you {
+  color: #e5133a;
+  font-weight: 600;
+}
+.playback-narr-opp {
+  color: #00d4ff;
+  font-weight: 600;
+}
+.playback-narr-move-icon {
+  font-style: normal;
+}
+.playback-narr-move-name {
+  color: #f0f0f5;
+  font-weight: 600;
+}
+.playback-narr-dmg {
+  color: #e5133a;
+  font-weight: 700;
+}
+.playback-narr-blocked {
+  color: #00d4ff;
+  font-weight: 600;
+}
+.playback-narr-combo {
+  color: #f5a623;
+  font-weight: 500;
+}
+
+.cinematic-round-banner--title {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 4vw, 36px);
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  color: #e5133a;
+  text-align: center;
+  width: 100%;
+  text-shadow: 0 0 20px rgba(229, 19, 58, 0.35);
+}
+
+.cinematic-points-summary {
+  background: #0a0a12;
+  border: 1px solid rgba(245, 166, 35, 0.2);
+  border-radius: 6px;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.5rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  color: #c0c0d0;
+}
+.cinematic-points-duel {
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: #8888a0;
+}
+.duel-pts-win {
+  color: #3ecf8e;
+  font-weight: 700;
+  font-size: 15px;
+}
+.duel-pts-loss {
+  color: #5a5a72;
+  font-weight: 600;
+  font-size: 15px;
+}
+.duel-pts-draw {
+  color: #f5a623;
+  font-weight: 600;
+}
+.duel-pts-na {
+  color: #5a5a72;
+}
+.cinematic-points-total {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: #8888a0;
+}
+.cinematic-points-total-val {
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: #f5a623;
+  letter-spacing: 0.04em;
+}
+.cinematic-points-retry {
+  border: none;
+  background: transparent;
+  color: #f5a623;
+  cursor: pointer;
+  padding: 0.1rem;
+  line-height: 1;
+}
+
+.reveal-wait-card {
+  margin-top: 0.75rem;
+  padding: 1.25rem 1rem;
+  background: #0d0d15;
+  border: 1px solid rgba(245, 166, 35, 0.25);
+  border-radius: 8px;
+  text-align: center;
+}
+.reveal-wait-card--flash {
+  animation: revealWaitFlash 0.35s ease-out;
+}
+@keyframes revealWaitFlash {
+  0% {
+    border-color: rgba(0, 212, 255, 0.9);
+    box-shadow: 0 0 18px rgba(0, 212, 255, 0.35);
+  }
+  100% {
+    border-color: rgba(245, 166, 35, 0.25);
+    box-shadow: none;
+  }
+}
+.reveal-wait-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: #00d4ff;
+  letter-spacing: 0.12em;
+  margin-bottom: 0.65rem;
+}
+.reveal-wait-lead {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  color: #8888a0;
+  margin: 0 0 0.5rem;
+}
+.reveal-wait-italic {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  font-style: italic;
+  color: #c0c0d0;
+  margin: 0 0 0.85rem;
+}
+.reveal-wait-poll-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.reveal-wait-dots {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+.reveal-wait-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f5a623;
+  animation: revealDotPulse 1.2s ease-in-out infinite;
+}
+.reveal-wait-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.reveal-wait-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes revealDotPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.reveal-wait-last {
+  font-size: 11px;
+  color: #6a6a82;
+}
+
+.clash-opp-reveal-toast {
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  padding: 0.55rem 1rem;
+  background: rgba(229, 19, 58, 0.95);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  border-radius: 4px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+.rail-card-points .rail-points-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: #8888a0;
+  letter-spacing: 0.1em;
+}
+.rail-points-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+.rail-points-val {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  color: #f5a623;
+  font-weight: 700;
+}
+.rail-points-sub {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 11px;
+  color: #5a5a72;
+  line-height: 1.35;
+}
+.rail-points-retry {
+  border: none;
+  background: transparent;
+  color: #f5a623;
+  cursor: pointer;
+  padding: 0.1rem;
+  display: inline-flex;
+  align-items: center;
+}
+
 /* Attack broadcast + exchange + vignette + nameplates (Clash ZK playback) */
 .attack-broadcast-bar {
   display: flex;
@@ -1641,7 +1911,7 @@ button:disabled {
 .nameplate-hp-fill {
   height: 100%;
   border-radius: 2px;
-  transition: width 0.8s ease-out;
+  transition: width 0.9s ease-out;
 }
 .nameplate-hp-fill--hi {
   background: #00d4ff;
