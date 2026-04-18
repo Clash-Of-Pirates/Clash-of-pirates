@@ -1,0 +1,1784 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, type Variants } from 'framer-motion';
+import { Lock, ShieldAlert } from 'lucide-react';
+import { Buffer } from 'buffer';
+import { NoirService, type ClashProofResult } from '@/utils/NoirService';
+import type { ClashGameService } from './clashService';
+import type { SmartAccountService } from './smartAccountService';
+import type { DetailedTurnResult, Game, GamePlayback, Move } from './bindings';
+import { Attack, Defense } from './bindings';
+import type { SelectedMove } from '@/components/Clashgamecomponents';
+import { createEmptyMoves } from '@/components/Clashgamecomponents';
+import { recordSessionLoadActivity } from '@/utils/onChainTxFeed';
+import { CopyChip } from './components/CopyChip';
+import { CLASH_CONTRACT, NETWORK } from '@/utils/constants';
+
+type ZkPhase = 'create' | 'commit' | 'waiting_reveal' | 'reveal' | 'resolve' | 'complete';
+const STEP_KEYS = ['moves', 'proof', 'commit', 'reveal', 'resolve'] as const;
+const POINTS_DECIMALS = 7;
+const DEFAULT_POINTS = '0.1';
+const ATTACK_MOVES = [
+  { index: 0, icon: '⚔️', name: 'Cutlass Slash', damage: 30, counters: 'Counter', blockedBy: 'Dodge' },
+  { index: 1, icon: '🔥', name: 'Cannon Blast', damage: 40, counters: 'Dodge', blockedBy: 'Counter' },
+  { index: 2, icon: '⚡', name: 'Lightning Strike', damage: 35, counters: 'Block', blockedBy: 'Block' },
+] as const;
+const DEFENSE_MOVES = [
+  { index: 0, icon: '🛡️', name: 'Raised Shield', label: 'Block', stops: 'Lightning Strike', stopsIcon: '⚡' },
+  { index: 1, icon: '🏃', name: 'Quick Sidestep', label: 'Dodge', stops: 'Cutlass Slash', stopsIcon: '⚔️' },
+  { index: 2, icon: '🔄', name: 'Riposte', label: 'Counter', stops: 'Cannon Blast', stopsIcon: '🔥' },
+] as const;
+const COUNTER_DEFENSE_BY_ATTACK: Record<number, number> = {
+  [Attack.Slash]: Defense.Dodge,
+  [Attack.Fireball]: Defense.Counter,
+  [Attack.Lightning]: Defense.Block,
+};
+
+const MATRIX_CHARS = 'アイウエオカキクケコ0123456789ABCDEF<>{}[]|/\\';
+const PROOF_TERMINAL_LINES = [
+  '> LOADING CIRCUIT: duel_commit_circuit.json',
+  '> EXECUTING WITNESS GENERATION...',
+  '> COMPUTING PEDERSEN HASH COMMITMENT...',
+  '> RUNNING ULTRAHONK PROVER...',
+  '> VERIFYING SUMCHECK PROTOCOL...',
+  '> VERIFYING SHPLEMINI POLYNOMIAL...',
+  '> BUILDING PUBLIC INPUTS [96 BYTES]...',
+  '> PROOF SIZE: ~2KB',
+  '> FINALIZING...',
+] as const;
+
+const ROUND_BANNERS = ['THE OPENING GAMBIT', 'CLASH OF TITANS', 'THE FINAL RECKONING'] as const;
+
+const FORGING_BUTTON_LINES = [
+  '⚡ FORGING ZERO-KNOWLEDGE PROOF...',
+  '⚡ COMPILING ARITHMETIZATION...',
+  '⚡ GENERATING WITNESS POLYNOMIALS...',
+  '⚡ INVOKING BARRETENBERG PROVER...',
+] as const;
+
+type SpriteAnim = 'idle' | 'attack' | 'hit' | 'block' | 'victory' | 'defeated';
+
+type AttackBroadcast = {
+  attackerIsP1: boolean;
+  moveIcon: string;
+  moveName: string;
+};
+
+type BattlePlaybackUi = {
+  round: number;
+  segment: 'idle' | 'intro' | 'p1Reveal' | 'p1Impact' | 'p2Reveal' | 'p2Impact' | 'exchange' | 'hp' | 'winner' | 'post';
+  hp1: number;
+  hp2: number;
+  p1Anim: SpriteAnim;
+  p2Anim: SpriteAnim;
+  floatText: string | null;
+  floatTone: 'crimson' | 'cyan';
+  floatSide: 'left' | 'right' | null;
+  showBanner: boolean;
+  showCardsP1: boolean;
+  showCardsP2: boolean;
+  attackBroadcast: AttackBroadcast | null;
+  exchangeFlash: boolean;
+  vignetteHit: boolean;
+  showWinnerOverlay: boolean;
+  showEndTable: boolean;
+  showEndButtons: boolean;
+  outcome: 'win' | 'loss' | 'draw' | null;
+};
+
+function isLocalPlayer(address: string, walletAddress: string) {
+  return address?.toLowerCase() === walletAddress?.toLowerCase();
+}
+
+function truncateAddr(a: string) {
+  if (a.length <= 12) return a;
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function attackMeta(a: Attack) {
+  return ATTACK_MOVES.find((m) => m.index === a) ?? ATTACK_MOVES[0];
+}
+function defenseMeta(d: Defense) {
+  return DEFENSE_MOVES.find((m) => m.index === d) ?? DEFENSE_MOVES[0];
+}
+
+function MatrixRain({ active }: { active: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const raf = useRef<number>(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let w = 0;
+    let h = 0;
+    const fontSize = 13;
+    const drops: number[] = [];
+    const speeds: number[] = [];
+
+    const resize = () => {
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      if (!rect) return;
+      w = Math.max(1, Math.floor(rect.width));
+      h = Math.max(1, Math.floor(rect.height));
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const colCount = Math.ceil(w / fontSize);
+      drops.length = 0;
+      speeds.length = 0;
+      for (let i = 0; i < colCount; i++) {
+        drops[i] = Math.random() * -h;
+        speeds[i] = 1 + Math.floor(Math.random() * 3);
+      }
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    if (canvas.parentElement) ro.observe(canvas.parentElement);
+
+    const draw = () => {
+      ctx.fillStyle = 'rgba(5, 5, 8, 0.15)';
+      ctx.fillRect(0, 0, w, h);
+      ctx.font = `${fontSize}px "JetBrains Mono", monospace`;
+
+      for (let i = 0; i < drops.length; i++) {
+        const x = i * fontSize;
+        const headY = drops[i]!;
+        const ch = MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)]!;
+        const trailLen = 18;
+        for (let j = 0; j < trailLen; j++) {
+          const y = headY - j * fontSize;
+          if (y < -fontSize || y > h + fontSize) continue;
+          const tail = j / trailLen;
+          const headG = 0xff;
+          const dimG = 0x3b;
+          const g = Math.round(dimG + (1 - tail) * (headG - dimG));
+          ctx.fillStyle = j === 0 ? '#00FF41' : `rgb(0, ${g}, ${Math.round(0x00 + tail * 0x41)})`;
+          const c = j === 0 ? ch : MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)]!;
+          ctx.fillText(c, x, y);
+        }
+        drops[i]! += speeds[i]! * (fontSize * 0.35);
+        if (drops[i]! > h + 40) {
+          drops[i] = Math.random() * -h * 0.8;
+          speeds[i] = 1 + Math.floor(Math.random() * 3);
+        }
+      }
+
+      raf.current = requestAnimationFrame(draw);
+    };
+    raf.current = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(raf.current);
+      ro.disconnect();
+    };
+  }, [active]);
+
+  return (
+    <canvas
+      ref={ref}
+      className="zk-matrix-rain-canvas"
+      aria-hidden
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: active ? 0.18 : 0, transition: 'opacity 0.5s ease' }}
+    />
+  );
+}
+
+function ProofTerminal({
+  busy,
+  proofBundle,
+  error,
+  sessionId,
+  allMovesComplete,
+  onRetry,
+}: {
+  busy: boolean;
+  proofBundle: ClashProofResult | null;
+  error: string | null;
+  sessionId: number;
+  allMovesComplete: boolean;
+  onRetry: () => void;
+}) {
+  const generating = Boolean(busy && allMovesComplete && !proofBundle);
+  const valid = Boolean(proofBundle);
+  const terminalError = Boolean(error && allMovesComplete && !proofBundle && !busy);
+
+  const [lines, setLines] = useState<string[]>([]);
+  const [currentLine, setCurrentLine] = useState('');
+  const [lineIdx, setLineIdx] = useState(0);
+  const [charIdx, setCharIdx] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [rainActive, setRainActive] = useState(false);
+  const progressTRef = useRef<number>(0);
+  const startRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (generating) {
+      setRainActive(true);
+      setLines([]);
+      setCurrentLine('');
+      setLineIdx(0);
+      setCharIdx(0);
+      setProgress(0);
+      startRef.current = Date.now();
+    } else if (valid) {
+      setRainActive(false);
+      setProgress(100);
+    } else if (terminalError) {
+      setRainActive(false);
+    }
+  }, [generating, valid, terminalError]);
+
+  useEffect(() => {
+    if (!generating) return;
+    const tick = () => {
+      const elapsed = (Date.now() - startRef.current) / 1000;
+      let p = 0;
+      if (elapsed < 2) p = (elapsed / 2) * 40;
+      else if (elapsed < 8) p = 40 + ((elapsed - 2) / 6) * 50;
+      else p = 90;
+      setProgress(p);
+      progressTRef.current = window.requestAnimationFrame(tick);
+    };
+    progressTRef.current = window.requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(progressTRef.current);
+  }, [generating]);
+
+  useEffect(() => {
+    if (valid) setProgress(100);
+  }, [valid]);
+
+  useEffect(() => {
+    if (!generating) return;
+    const line = PROOF_TERMINAL_LINES[lineIdx];
+    if (!line) {
+      setLineIdx(0);
+      return;
+    }
+    if (charIdx < line.length) {
+      const t = window.setTimeout(() => {
+        setCurrentLine(line.slice(0, charIdx + 1));
+        setCharIdx((c) => c + 1);
+      }, 30);
+      return () => clearTimeout(t);
+    }
+    const t = window.setTimeout(() => {
+      setLines((prev) => [...prev, line]);
+      setCurrentLine('');
+      setCharIdx(0);
+      setLineIdx((i) => (i + 1) % PROOF_TERMINAL_LINES.length);
+    }, 800);
+    return () => clearTimeout(t);
+  }, [generating, lineIdx, charIdx]);
+
+  let mode: 'idle' | 'generating' | 'valid' | 'error' = 'idle';
+  if (valid) mode = 'valid';
+  else if (generating) mode = 'generating';
+  else if (terminalError) mode = 'error';
+  else mode = 'idle';
+
+  const borderClass =
+    mode === 'valid' ? 'zk-proof-terminal--valid' : mode === 'error' ? 'zk-proof-terminal--error' : 'zk-proof-terminal--idle';
+
+  return (
+    <div className={`zk-proof-terminal ${borderClass}`}>
+      <MatrixRain active={mode === 'generating' && rainActive} />
+      <div className="zk-proof-terminal-header">
+        <span className="zk-term-dot zk-term-dot--red" />
+        <span className="zk-term-dot zk-term-dot--amber" />
+        <span className="zk-term-dot zk-term-dot--green" />
+        <div className="zk-proof-terminal-titles">
+          <span className="zk-proof-terminal-title">ZERO-KNOWLEDGE PROOF ENGINE v2.1.0</span>
+          <span className="zk-proof-terminal-sub">UltraHonk / Barretenberg / Noir</span>
+        </div>
+      </div>
+      <div className="zk-proof-terminal-body">
+        {mode === 'idle' && (
+          <div className="zk-term-text zk-term-text--dim">
+            <div>&gt; PROOF ENGINE STANDING BY</div>
+            <div>&gt; AWAITING MOVE COMMITMENT...</div>
+            <div className="zk-term-cursor-line">
+              &gt; <span className="zk-term-cursor" />
+            </div>
+          </div>
+        )}
+        {mode === 'generating' && (
+          <>
+            <div className="zk-term-scroll">
+              {lines.map((ln) => (
+                <div key={ln} className="zk-term-line zk-term-line--done">
+                  {ln}
+                </div>
+              ))}
+              <div className="zk-term-line zk-term-line--bright">
+                {currentLine}
+                <span className="zk-term-cursor" />
+              </div>
+            </div>
+            <div className="zk-term-progress-row">
+              <div className="zk-term-progress-track">
+                <div className="zk-term-progress-fill" style={{ width: `${Math.round(progress)}%` }} />
+              </div>
+              <span className="zk-term-progress-label">PROVING... {Math.round(progress)}%</span>
+            </div>
+          </>
+        )}
+        {mode === 'valid' && proofBundle && (
+          <div className="zk-term-text zk-term-text--valid">
+            <div>&gt; PROOF GENERATED SUCCESSFULLY</div>
+            <div className="zk-term-row-inline">
+              &gt; YOUR COMMITMENT:{' '}
+              <CopyChip
+                label="YOUR COMMITMENT ⧉"
+                value={proofBundle.commitmentHash}
+                display={`${proofBundle.commitmentHash.slice(0, 6)}...${proofBundle.commitmentHash.slice(-4)}`}
+              />
+            </div>
+            <div className="zk-term-row-inline">
+              &gt; SESSION:{' '}
+              <CopyChip label="SESSION ⧉" value={String(sessionId)} />
+            </div>
+            <div>&gt; PROOF SIZE: {proofBundle.proofBytes.length} bytes</div>
+            <div>&gt; CIRCUIT: UltraHonk / Keccak oracle</div>
+            <div className="zk-term-status-valid">&gt; STATUS: ██████████████████ VALID ✓</div>
+          </div>
+        )}
+        {mode === 'error' && error && (
+          <div className="zk-term-text zk-term-text--err">
+            <div>&gt; ERROR: PROOF GENERATION FAILED</div>
+            <div className="zk-term-err-msg">{error}</div>
+            <div className="zk-term-cursor-line">
+              &gt; <span className="zk-term-cursor zk-term-cursor--err" />
+            </div>
+            <button type="button" className="zk-proof-retry-btn" onClick={onRetry}>
+              ↩ RETRY PROOF GENERATION
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PirateCharacter({
+  side,
+  animation,
+  accentColor,
+}: {
+  side: 'left' | 'right';
+  animation: SpriteAnim;
+  accentColor: string;
+}) {
+  const attackX = side === 'right' ? [0, -30, 0] : [0, 30, 0];
+  const variants: Variants = {
+    idle: { y: [0, -4, 0], transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' } },
+    attack: { x: attackX, transition: { duration: 0.4, times: [0, 0.55, 1], ease: ['easeOut', 'easeIn'] } },
+    hit: {
+      opacity: [1, 0.2, 1, 0.2, 1, 0.2, 1],
+      x: [0, -8, 8, -4, 4, 0],
+      transition: { duration: 0.3 },
+    },
+    block: { scale: [1, 1.15, 1], transition: { duration: 0.25 } },
+    victory: { y: [0, -20, 0], transition: { duration: 0.8, repeat: Infinity, ease: 'easeInOut' } },
+    defeated: { rotate: 90, opacity: 0.3, y: 20, filter: 'grayscale(1)', transition: { duration: 0.6, ease: 'easeIn' } },
+  };
+
+  const victoryGlow = animation === 'victory' ? { boxShadow: '0 0 30px rgba(255, 200, 0, 0.6)' } : {};
+
+  return (
+    <motion.div
+      className={`pirate-sprite ${side === 'right' ? 'pirate-sprite--mirror' : ''} ${animation === 'block' ? 'pirate-sprite--block-pulse' : ''}`}
+      animate={animation}
+      variants={variants}
+      style={{ borderColor: accentColor, ...victoryGlow }}
+    >
+      <div className="pirate-hat" style={{ borderBottomColor: accentColor }} />
+      <div className="pirate-body" />
+      <div className="pirate-arm pirate-arm--sword" style={{ background: accentColor }} />
+      <div className="pirate-legs">
+        <span />
+        <span />
+      </div>
+    </motion.div>
+  );
+}
+
+function useBattlePlayback(gamePlayback: GamePlayback | null, active: boolean, userAddress: string) {
+  const [ui, setUi] = useState<BattlePlaybackUi>(() => ({
+    round: 0,
+    segment: 'idle',
+    hp1: 100,
+    hp2: 100,
+    p1Anim: 'idle',
+    p2Anim: 'idle',
+    floatText: null,
+    floatTone: 'crimson',
+    floatSide: null,
+    showBanner: false,
+    showCardsP1: false,
+    showCardsP2: false,
+    attackBroadcast: null,
+    exchangeFlash: false,
+    vignetteHit: false,
+    showWinnerOverlay: false,
+    showEndTable: false,
+    showEndButtons: false,
+    outcome: null,
+  }));
+
+  const runIdRef = useRef(0);
+
+  useEffect(() => {
+    if (!active || !gamePlayback?.turn_results?.length) return;
+    const runId = ++runIdRef.current;
+    const timers: number[] = [];
+    const q = (ms: number, fn: () => void) => {
+      timers.push(
+        window.setTimeout(() => {
+          if (runId !== runIdRef.current) return;
+          fn();
+        }, ms)
+      );
+    };
+
+    const turns = gamePlayback.turn_results;
+    const isDraw = gamePlayback.is_draw;
+    const wStr = gamePlayback.winner?.toString?.() ?? '';
+    let outcome: 'win' | 'loss' | 'draw' = 'draw';
+    if (isDraw) outcome = 'draw';
+    else if (isLocalPlayer(wStr, userAddress)) outcome = 'win';
+    else outcome = 'loss';
+
+    const isP1Local = isLocalPlayer(gamePlayback.player1, userAddress);
+
+    let hp1 = 100;
+    let hp2 = 100;
+    let acc = 0;
+
+    const scheduleRound = (r: number, tr: DetailedTurnResult) => {
+      const p1Atk = attackMeta(tr.player1_move.attack);
+      const p2Atk = attackMeta(tr.player2_move.attack);
+      const p2dmg = Number(tr.player2_damage_taken);
+      const p1dmg = Number(tr.player1_damage_taken);
+
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          round: r,
+          segment: 'intro',
+          showBanner: true,
+          showCardsP1: false,
+          showCardsP2: false,
+          floatText: null,
+          floatSide: null,
+          attackBroadcast: null,
+          exchangeFlash: false,
+          vignetteHit: false,
+          p1Anim: 'idle',
+          p2Anim: 'idle',
+        }))
+      );
+      acc += 800;
+
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          segment: 'p1Reveal',
+          showBanner: false,
+          showCardsP1: true,
+          showCardsP2: false,
+          attackBroadcast: {
+            attackerIsP1: true,
+            moveIcon: p1Atk.icon,
+            moveName: p1Atk.name.toUpperCase(),
+          },
+        }))
+      );
+      acc += 1450;
+
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          segment: 'p1Impact',
+          attackBroadcast: null,
+          showCardsP1: true,
+          p1Anim: 'attack',
+          p2Anim: p2dmg > 0 ? 'hit' : 'block',
+          floatText: p2dmg > 0 ? `-${p2dmg}` : '🛡 BLOCKED',
+          floatTone: p2dmg > 0 ? 'crimson' : 'cyan',
+          floatSide: isP1Local ? 'right' : 'left',
+          vignetteHit: p2dmg > 0,
+        }))
+      );
+      acc += 600;
+
+      q(acc, () => setUi((s) => ({ ...s, vignetteHit: false })));
+      acc += 80;
+
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          segment: 'p2Reveal',
+          showCardsP1: false,
+          showCardsP2: true,
+          p1Anim: 'idle',
+          p2Anim: 'idle',
+          floatText: null,
+          floatSide: null,
+          attackBroadcast: {
+            attackerIsP1: false,
+            moveIcon: p2Atk.icon,
+            moveName: p2Atk.name.toUpperCase(),
+          },
+        }))
+      );
+      acc += 1450;
+
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          segment: 'p2Impact',
+          attackBroadcast: null,
+          p1Anim: p1dmg > 0 ? 'hit' : 'block',
+          p2Anim: 'attack',
+          floatText: p1dmg > 0 ? `-${p1dmg}` : '🛡 BLOCKED',
+          floatTone: p1dmg > 0 ? 'crimson' : 'cyan',
+          floatSide: isP1Local ? 'left' : 'right',
+          vignetteHit: p1dmg > 0,
+        }))
+      );
+      acc += 600;
+
+      q(acc, () => setUi((s) => ({ ...s, vignetteHit: false })));
+      acc += 80;
+
+      q(acc, () => setUi((s) => ({ ...s, segment: 'exchange', exchangeFlash: true })));
+      acc += 400;
+
+      q(acc, () => setUi((s) => ({ ...s, exchangeFlash: false })));
+      acc += 120;
+
+      hp1 = Number(tr.player1_hp_remaining);
+      hp2 = Number(tr.player2_hp_remaining);
+
+      q(acc, () =>
+        setUi((s) => ({
+          ...s,
+          segment: 'hp',
+          showCardsP2: false,
+          hp1,
+          hp2,
+          p1Anim: hp1 <= 0 ? 'defeated' : 'idle',
+          p2Anim: hp2 <= 0 ? 'defeated' : 'idle',
+          floatText: null,
+          floatSide: null,
+        }))
+      );
+      acc += 800;
+      acc += 500;
+    };
+
+    turns.slice(0, 3).forEach((tr, r) => scheduleRound(r, tr));
+
+    q(acc, () =>
+      setUi((s) => {
+        const w = gamePlayback.winner?.toString?.() ?? '';
+        const p1w = !isDraw && w === gamePlayback.player1;
+        const p2w = !isDraw && w === gamePlayback.player2;
+        return {
+          ...s,
+          segment: 'winner',
+          showWinnerOverlay: true,
+          outcome,
+          p1Anim: p1w ? 'victory' : p2w ? 'defeated' : 'idle',
+          p2Anim: p2w ? 'victory' : p1w ? 'defeated' : 'idle',
+        };
+      })
+    );
+    acc += 2000;
+
+    q(acc, () => setUi((s) => ({ ...s, showEndTable: true })));
+    acc += 500;
+
+    q(acc, () => setUi((s) => ({ ...s, showEndButtons: true })));
+
+    return () => {
+      runIdRef.current++;
+      timers.forEach((id) => clearTimeout(id));
+    };
+  }, [active, gamePlayback, userAddress]);
+
+  return { ui };
+}
+
+function stellarExplorerContractUrl(contractId: string) {
+  const net = NETWORK === 'testnet' ? 'testnet' : 'public';
+  return `https://stellar.expert/explorer/${net}/contract/${contractId}`;
+}
+
+type Props = {
+  userAddress: string;
+  clashService: ClashGameService;
+  smartAccountService: SmartAccountService;
+  fastSigning: boolean;
+  hasActiveSessionKey?: boolean;
+  sessionExpiresLedger?: number | null;
+  onCreateSessionKey?: () => void | Promise<void>;
+  onClearSessionKey?: () => void;
+  fastSigningBusy?: boolean;
+  onSessionKeyActivated?: () => void;
+  onSessionIdChange?: (sid: number) => void;
+};
+
+const CLASH_SESSION_ONBOARDING_KEY = 'clash_session_onboarding_seen';
+
+function parsePoints(value: string): bigint | null {
+  try {
+    const cleaned = value.replace(/[^\d.]/g, '');
+    if (!cleaned || cleaned === '.') return null;
+    const [whole = '0', fraction = ''] = cleaned.split('.');
+    const paddedFraction = fraction.padEnd(POINTS_DECIMALS, '0').slice(0, POINTS_DECIMALS);
+    return BigInt(whole + paddedFraction);
+  } catch {
+    return null;
+  }
+}
+
+function createRandomSessionId(): number {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    let value = 0;
+    const buffer = new Uint32Array(1);
+    while (value === 0) {
+      crypto.getRandomValues(buffer);
+      value = buffer[0];
+    }
+    return value;
+  }
+  return (Math.floor(Math.random() * 0xffffffff) >>> 0) || 1;
+}
+
+function toBuffer(arr: Uint8Array): Buffer {
+  return Buffer.from(arr);
+}
+
+function toContractMoves(moves: SelectedMove[]): Move[] {
+  return moves.map((m) => ({ attack: m.attack as Attack, defense: m.defense as Defense }));
+}
+
+function storageKeyPublicInputs(sid: number, addr: string) {
+  return `clash_zk_public_${sid}_${addr}`;
+}
+
+function storageKeyMoves(sid: number, addr: string) {
+  return `clash_zk_moves_${sid}_${addr}`;
+}
+
+function allMovesComplete(moves: SelectedMove[]) {
+  return moves.every((m) => m.attack !== null && m.defense !== null);
+}
+
+export function ClashZkArena({
+  userAddress,
+  clashService,
+  smartAccountService,
+  fastSigning,
+  hasActiveSessionKey = false,
+  onCreateSessionKey,
+  fastSigningBusy = false,
+  onSessionKeyActivated,
+  onSessionIdChange,
+}: Props) {
+  const noir = useRef(new NoirService());
+  const [phase, setPhase] = useState<ZkPhase>('create');
+  const [sessionId, setSessionId] = useState(() => createRandomSessionId());
+  const [gameState, setGameState] = useState<Game | null>(null);
+  const [gamePlayback, setGamePlayback] = useState<GamePlayback | null>(null);
+  const [opponentAddress, setOpponentAddress] = useState('');
+  const [pointsStr, setPointsStr] = useState(DEFAULT_POINTS);
+  const [loadSessionId, setLoadSessionId] = useState('');
+  const [selectedMoves, setSelectedMoves] = useState<SelectedMove[]>(() => createEmptyMoves());
+  const [storedPublicInputs, setStoredPublicInputs] = useState<Uint8Array | null>(null);
+  const [proofBundle, setProofBundle] = useState<ClashProofResult | null>(null);
+  const [proofMovesKey, setProofMovesKey] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [criticalError, setCriticalError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [proofPulse, setProofPulse] = useState<'idle' | 'success' | 'failed'>('idle');
+  const [burstTurn, setBurstTurn] = useState<number | null>(null);
+  const [defenseHintPulse, setDefenseHintPulse] = useState<{ turn: number; defense: number } | null>(null);
+  const [forgingLine, setForgingLine] = useState(0);
+  const [showOnboardingDialog, setShowOnboardingDialog] = useState(false);
+  const [sessionKeyToast, setSessionKeyToast] = useState(false);
+
+  const battlePlayback = useBattlePlayback(gamePlayback, phase === 'complete' && Boolean(gamePlayback), userAddress);
+
+  useEffect(() => {
+    if (hasActiveSessionKey) setShowOnboardingDialog(false);
+  }, [hasActiveSessionKey]);
+
+  useEffect(() => {
+    try {
+      if (hasActiveSessionKey) return;
+      if (typeof localStorage === 'undefined') return;
+      if (localStorage.getItem(CLASH_SESSION_ONBOARDING_KEY)) return;
+      setShowOnboardingDialog(true);
+    } catch {
+      /* ignore */
+    }
+  }, [hasActiveSessionKey]);
+
+  useEffect(() => {
+    const loading = busy && allMovesComplete(selectedMoves) && !proofBundle && phase === 'commit';
+    if (!loading) {
+      setForgingLine(0);
+      return;
+    }
+    const id = window.setInterval(() => {
+      setForgingLine((i) => (i + 1) % FORGING_BUTTON_LINES.length);
+    }, 2400);
+    return () => clearInterval(id);
+  }, [busy, selectedMoves, proofBundle, phase]);
+
+  const loadPublicInputs = (sid: number, addr: string): Uint8Array | null => {
+    try {
+      const b64 = localStorage.getItem(storageKeyPublicInputs(sid, addr));
+      if (!b64) return null;
+      const binary = atob(b64);
+      return new Uint8Array([...binary].map((c) => c.charCodeAt(0)));
+    } catch {
+      return null;
+    }
+  };
+
+  const savePublicInputs = (sid: number, addr: string, inputs: Uint8Array) => {
+    try {
+      const b64 = btoa(String.fromCharCode(...inputs));
+      localStorage.setItem(storageKeyPublicInputs(sid, addr), b64);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const clearPublicInputs = (sid: number, addr: string) => {
+    try {
+      localStorage.removeItem(storageKeyPublicInputs(sid, addr));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const loadMovesFromStorage = (sid: number, addr: string): SelectedMove[] => {
+    try {
+      const raw = localStorage.getItem(storageKeyMoves(sid, addr));
+      if (!raw) return createEmptyMoves();
+      return JSON.parse(raw) as SelectedMove[];
+    } catch {
+      return createEmptyMoves();
+    }
+  };
+
+  const loadGameState = useCallback(async () => {
+    try {
+      const game = await clashService.getGame(sessionId);
+      if (!game) return;
+      setGameState(game);
+      setLastSyncedAt(Date.now());
+      const p1c = game.has_player1_commitment;
+      const p2c = game.has_player2_commitment;
+      const p1r = game.player1_commitment?.has_revealed ?? false;
+      const p2r = game.player2_commitment?.has_revealed ?? false;
+      const hasBattle = game.has_battle_result;
+      const isP1 = game.player1 === userAddress;
+      const isP2 = game.player2 === userAddress;
+      const myCommitted = isP1 ? p1c : isP2 ? p2c : false;
+
+      if (hasBattle) {
+        setPhase('complete');
+        const pb = await clashService.getGamePlayback(sessionId);
+        if (pb) setGamePlayback(pb);
+      } else if (p1r && p2r) {
+        setPhase('resolve');
+      } else if (p1c && p2c) {
+        setPhase('reveal');
+      } else if (myCommitted) {
+        setPhase('waiting_reveal');
+      } else {
+        setPhase('commit');
+      }
+      const stored = loadPublicInputs(sessionId, userAddress);
+      if (stored) setStoredPublicInputs(stored);
+    } catch {
+      /* ignore */
+    }
+  }, [clashService, sessionId, userAddress]);
+
+  useEffect(() => {
+    onSessionIdChange?.(sessionId);
+  }, [sessionId, onSessionIdChange]);
+
+  useEffect(() => {
+    if (phase === 'create' || phase === 'complete') return;
+    const id = window.setInterval(() => void loadGameState(), 4000);
+    return () => window.clearInterval(id);
+  }, [phase, loadGameState]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKeyMoves(sessionId, userAddress), JSON.stringify(selectedMoves));
+    } catch {
+      /* ignore */
+    }
+  }, [selectedMoves, sessionId, userAddress]);
+
+  const handleStartGame = async () => {
+    setError(null);
+    setSuccess(null);
+    const pts = parsePoints(pointsStr);
+    if (!pts || pts <= 0n) {
+      setError('Enter a valid points amount');
+      return;
+    }
+    if (!opponentAddress.trim()) {
+      setError('Enter opponent contract address (C...)');
+      return;
+    }
+    if (opponentAddress.trim() === userAddress) {
+      setError('Cannot play against yourself');
+      return;
+    }
+    setBusy(true);
+    try {
+      const sid = createRandomSessionId();
+      setSessionId(sid);
+      setSelectedMoves(createEmptyMoves());
+      setStoredPublicInputs(null);
+      setProofBundle(null);
+      setProofMovesKey(null);
+      setGamePlayback(null);
+      setGameState(null);
+      await clashService.startGameWithSmartAccount(
+        sid,
+        userAddress,
+        opponentAddress.trim(),
+        pts,
+        pts,
+        smartAccountService
+      );
+      setPhase('commit');
+      setSuccess('Duel started. Plan your 3 turns.');
+      await loadGameState();
+    } catch (e) {
+      setCriticalError(e instanceof Error ? e.message : 'Failed to start game');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLoadSession = async () => {
+    setError(null);
+    const sid = parseInt(loadSessionId.trim(), 10);
+    if (Number.isNaN(sid) || sid <= 0) {
+      setError('Enter a valid session ID');
+      return;
+    }
+    setBusy(true);
+    try {
+      const game = await clashService.getGame(sid);
+      if (!game) return setError('Game not found');
+      if (game.player1 !== userAddress && game.player2 !== userAddress) {
+        return setError('You are not a player in this game');
+      }
+      setSessionId(sid);
+      const loaded = loadMovesFromStorage(sid, userAddress);
+      setSelectedMoves(loaded);
+      setStoredPublicInputs(loadPublicInputs(sid, userAddress));
+      setProofBundle(null);
+      setProofMovesKey(null);
+      setGameState(game);
+      setLoadSessionId('');
+      if (game.has_battle_result) {
+        setPhase('complete');
+        const pb = await clashService.getGamePlayback(sid);
+        if (pb) setGamePlayback(pb);
+      } else if (game.player1_commitment?.has_revealed && game.player2_commitment?.has_revealed) {
+        setPhase('resolve');
+      } else if (game.has_player1_commitment && game.has_player2_commitment) {
+        setPhase('reveal');
+      } else {
+        setPhase('commit');
+      }
+      recordSessionLoadActivity({ sessionId: sid });
+      setSuccess('Session loaded');
+      await loadGameState();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load game');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGenerateProof = async () => {
+    if (!allMovesComplete(selectedMoves)) return setError('Fill attack and defense for all 3 turns.');
+    setBusy(true);
+    setError(null);
+    try {
+      const attacks = selectedMoves.map((m) => m.attack!) as [number, number, number];
+      const defenses = selectedMoves.map((m) => m.defense!) as [number, number, number];
+      const proofResult = await noir.current.generateClashProof('duel_commit_circuit', {
+        attacks,
+        defenses,
+        playerAddress: userAddress,
+        sessionId,
+      });
+      setProofBundle(proofResult);
+      setProofMovesKey(JSON.stringify(selectedMoves.map((m) => [m.attack, m.defense])));
+      setProofPulse('success');
+      setSuccess('Proof is valid. Ready to commit on-chain.');
+    } catch (e) {
+      setProofPulse('failed');
+      setError(e instanceof Error ? e.message : 'Proof generation failed');
+      setProofBundle(null);
+      setProofMovesKey(null);
+    } finally {
+      setBusy(false);
+      setTimeout(() => setProofPulse('idle'), 600);
+    }
+  };
+
+  const movesKey = useMemo(() => JSON.stringify(selectedMoves.map((m) => [m.attack, m.defense])), [selectedMoves]);
+  const proofMatchesMoves = Boolean(proofBundle && proofMovesKey === movesKey);
+
+  const handleSubmitCommit = async () => {
+    if (!proofBundle || !proofMatchesMoves) return setError('Generate a valid proof that matches current moves.');
+    setBusy(true);
+    try {
+      await clashService.commitMovesWithSmartAccount(
+        sessionId,
+        userAddress,
+        proofBundle.publicInputs,
+        proofBundle.proofBytes,
+        smartAccountService
+      );
+      savePublicInputs(sessionId, userAddress, proofBundle.publicInputs);
+      setStoredPublicInputs(proofBundle.publicInputs);
+      setProofBundle(null);
+      setProofMovesKey(null);
+      setPhase('waiting_reveal');
+      setSuccess('Commit confirmed. Waiting for reveal phase.');
+      await loadGameState();
+    } catch (e) {
+      setCriticalError(e instanceof Error ? e.message : 'Commit failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReveal = async () => {
+    if (!storedPublicInputs) return setError('Missing commit public inputs from this browser.');
+    setBusy(true);
+    try {
+      await clashService.revealMovesWithSmartAccount(
+        sessionId,
+        userAddress,
+        toBuffer(storedPublicInputs),
+        toContractMoves(selectedMoves),
+        smartAccountService
+      );
+      clearPublicInputs(sessionId, userAddress);
+      setSuccess('Moves revealed.');
+      await loadGameState();
+    } catch (e) {
+      setCriticalError(e instanceof Error ? e.message : 'Reveal failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResolve = async () => {
+    setBusy(true);
+    try {
+      await clashService.resolveBattleWithSmartAccount(sessionId, smartAccountService);
+      const pb = await clashService.getGamePlayback(sessionId);
+      if (pb) setGamePlayback(pb);
+      setPhase('complete');
+      setSuccess('Battle resolved.');
+    } catch (e) {
+      setCriticalError(e instanceof Error ? e.message : 'Resolve failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReset = () => {
+    if (sessionId && userAddress) {
+      clearPublicInputs(sessionId, userAddress);
+      localStorage.removeItem(storageKeyMoves(sessionId, userAddress));
+    }
+    setPhase('create');
+    setSessionId(createRandomSessionId());
+    setGameState(null);
+    setGamePlayback(null);
+    setSelectedMoves(createEmptyMoves());
+    setStoredPublicInputs(null);
+    setProofBundle(null);
+    setProofMovesKey(null);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const myStep = useMemo(() => {
+    if (phase === 'create') return 0;
+    if (phase === 'commit') return proofBundle ? 2 : 1;
+    if (phase === 'waiting_reveal') return 3;
+    if (phase === 'reveal') return 4;
+    return 5;
+  }, [phase, proofBundle]);
+
+  const syncLabel = lastSyncedAt ? `${Math.max(0, Math.round((Date.now() - lastSyncedAt) / 1000))}s ago` : '—';
+
+  const strategyLabel = useMemo(() => {
+    const attacks = selectedMoves.map((m) => m.attack).filter((v): v is number => v !== null);
+    const cannonCount = attacks.filter((a) => a === Attack.Fireball).length;
+    const lowDamageCount = attacks.filter((a) => a === Attack.Slash || a === Attack.Lightning).length;
+    if (cannonCount > lowDamageCount) return { text: '⚔ AGGRESSIVE CAPTAIN', cls: 'atk' };
+    if (lowDamageCount > cannonCount) return { text: '🛡 DEFENSIVE CAPTAIN', cls: 'def' };
+    return { text: '⚖ CUNNING STRATEGIST', cls: 'bal' };
+  }, [selectedMoves]);
+
+  const comboPreview = useMemo(() => {
+    const attacks = selectedMoves.map((m) => m.attack);
+    if (attacks.some((a) => a === null)) return null;
+    if (attacks[0] === attacks[1] && attacks[1] === attacks[2]) {
+      const move = ATTACK_MOVES.find((m) => m.index === attacks[0]);
+      return { text: `${move?.icon} TRIPLE ${move?.name.toUpperCase()} +25 BONUS DMG`, cls: 'triple' };
+    }
+    if (attacks[0] === attacks[1] || attacks[1] === attacks[2]) {
+      const idx = attacks[0] === attacks[1] ? attacks[0] : attacks[1];
+      const move = ATTACK_MOVES.find((m) => m.index === idx);
+      return { text: `${move?.icon} ${move?.name.toUpperCase()} COMBO x2 +10 BONUS DMG`, cls: 'double' };
+    }
+    return null;
+  }, [selectedMoves]);
+
+  const selectAttack = (turn: number, attackIdx: number) => {
+    const next = [...selectedMoves];
+    const wasComplete = next[turn].attack !== null && next[turn].defense !== null;
+    next[turn] = { ...next[turn], attack: attackIdx };
+    setSelectedMoves(next);
+    const nowComplete = next[turn].attack !== null && next[turn].defense !== null;
+    if (!wasComplete && nowComplete) {
+      setBurstTurn(turn);
+      setTimeout(() => setBurstTurn(null), 400);
+    }
+    const counterDefense = COUNTER_DEFENSE_BY_ATTACK[attackIdx];
+    setDefenseHintPulse({ turn, defense: counterDefense });
+    setTimeout(() => setDefenseHintPulse(null), 600);
+  };
+
+  const selectDefense = (turn: number, defenseIdx: number) => {
+    const next = [...selectedMoves];
+    const wasComplete = next[turn].attack !== null && next[turn].defense !== null;
+    next[turn] = { ...next[turn], defense: defenseIdx };
+    setSelectedMoves(next);
+    const nowComplete = next[turn].attack !== null && next[turn].defense !== null;
+    if (!wasComplete && nowComplete) {
+      setBurstTurn(turn);
+      setTimeout(() => setBurstTurn(null), 400);
+    }
+  };
+
+  const movesReady = allMovesComplete(selectedMoves);
+  const proofLoading = Boolean(busy && movesReady && !proofBundle && phase === 'commit');
+
+  const battleCryBtnClass = [
+    'battle-cry-btn',
+    !movesReady ? 'battle-cry-btn--locked' : '',
+    movesReady && !proofLoading ? 'battle-cry-btn--ready' : '',
+    proofLoading ? 'battle-cry-btn--loading' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const explorerHref = stellarExplorerContractUrl(CLASH_CONTRACT || '');
+
+  const finishOnboardingSeen = () => {
+    try {
+      localStorage.setItem(CLASH_SESSION_ONBOARDING_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+    setShowOnboardingDialog(false);
+  };
+
+  const handleOnboardingCreateKey = async () => {
+    if (!onCreateSessionKey) return;
+    try {
+      await onCreateSessionKey();
+      finishOnboardingSeen();
+      onSessionKeyActivated?.();
+      setSessionKeyToast(true);
+      window.setTimeout(() => setSessionKeyToast(false), 2500);
+    } catch {
+      /* keep dialog open on failure */
+    }
+  };
+
+  const handleOnboardingSkip = () => {
+    finishOnboardingSeen();
+  };
+
+  return (
+    <div className="duel-shell">
+      {sessionKeyToast && (
+        <motion.div
+          initial={{ y: -24, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="clash-session-toast"
+        >
+          ⚡ SESSION KEY ACTIVE — ENTER THE ARENA
+        </motion.div>
+      )}
+      {showOnboardingDialog && (
+        <div className="clash-onboarding-backdrop" role="presentation">
+          <motion.div
+            className="clash-onboarding-dialog"
+            initial={{ scale: 0.92, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            role="dialog"
+            aria-labelledby="clash-onboarding-title"
+          >
+            <h2 id="clash-onboarding-title" className="clash-onboarding-title">
+              ⚡ BEFORE YOU ENTER THE ARENA
+            </h2>
+            <p className="clash-onboarding-body">
+              Create a Session Key to sign game transactions without a passkey prompt every move.
+            </p>
+            <p className="clash-onboarding-bullet">● Scoped only to the Clash contract</p>
+            <p className="clash-onboarding-bullet">● Stored locally — never leaves your device</p>
+            <p className="clash-onboarding-bullet">● Expires automatically after this session</p>
+            <button
+              type="button"
+              className="clash-onboarding-primary"
+              disabled={fastSigningBusy}
+              onClick={() => void handleOnboardingCreateKey()}
+            >
+              ⚡ CREATE SESSION KEY — ENTER THE ARENA
+            </button>
+            <button type="button" className="clash-onboarding-skip" onClick={handleOnboardingSkip}>
+              Skip for now — I&apos;ll sign each tx manually
+            </button>
+          </motion.div>
+        </div>
+      )}
+      {criticalError && (
+        <motion.div initial={{ y: -40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="critical-banner">
+          <ShieldAlert size={16} /> {criticalError}
+          <button type="button" onClick={() => setCriticalError(null)}>
+            Dismiss
+          </button>
+        </motion.div>
+      )}
+
+      {phase !== 'complete' && (
+        <>
+          <div className="arena-stepper">
+            {STEP_KEYS.map((step, idx) => {
+              const stepNo = idx + 1;
+              const done = stepNo < myStep;
+              const active = stepNo === myStep;
+              const locked = stepNo > myStep;
+              return (
+                <div key={step} className={`step-node ${active ? 'active' : ''} ${done ? 'done' : ''} ${locked ? 'locked' : ''}`}>
+                  <span>{done ? '✓' : stepNo}</span>
+                  <label>{step.toUpperCase()}</label>
+                  {locked && <Lock size={12} />}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="sync-row">
+            <span>Synced {syncLabel}</span>
+            <span className={fastSigning ? 'fast-on' : 'fast-off'}>{fastSigning ? 'Fast Sign Active' : 'Passkey Sign'}</span>
+          </div>
+        </>
+      )}
+
+      {phase === 'create' && (
+        <motion.div initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="duel-setup-grid">
+          <section className="arena-card">
+            <h3>Start New Duel</h3>
+            <label>Stake / Points</label>
+            <div className="field-with-unit">
+              <input value={pointsStr} onChange={(e) => setPointsStr(e.target.value)} placeholder="0.1" />
+              <span>XLM</span>
+            </div>
+            <label>Opponent Address</label>
+            <input value={opponentAddress} onChange={(e) => setOpponentAddress(e.target.value)} placeholder="C..." />
+            {error && <p className="inline-error">{error}</p>}
+            <button className="btn-arena-primary" disabled={busy} onClick={() => void handleStartGame()}>
+              ⚔ START DUEL
+            </button>
+          </section>
+          <section className="arena-card">
+            <h3>Rejoin Arena</h3>
+            <label>Session ID</label>
+            <input value={loadSessionId} onChange={(e) => setLoadSessionId(e.target.value)} placeholder="3533712123" />
+            <button className="btn-arena-secondary" disabled={busy} onClick={() => void handleLoadSession()}>
+              ↩ LOAD SESSION
+            </button>
+          </section>
+        </motion.div>
+      )}
+
+      {phase !== 'create' && phase !== 'complete' && (
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={phase}
+            initial={{ x: 30, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -30, opacity: 0 }}
+            transition={{ duration: 0.28 }}
+            className="arena-card"
+          >
+            {(phase === 'commit' || phase === 'waiting_reveal') && (
+              <>
+                <h3>Pick Your Moves</h3>
+                <div className="turn-grid">
+                  {selectedMoves.map((m, i) => {
+                    const complete = m.attack !== null && m.defense !== null;
+                    const partial = (m.attack !== null) !== (m.defense !== null);
+                    return (
+                      <motion.div
+                        key={i}
+                        initial={{ y: 20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        transition={{ duration: 0.3, delay: i * 0.08 }}
+                        className={`turn-card ${complete ? 'complete' : partial ? 'partial' : 'empty'} ${proofBundle ? 'proof-locked' : ''}`}
+                        title={proofBundle ? 'Clear proof to re-edit moves' : ''}
+                      >
+                        <strong>TURN {i + 1}</strong>
+                        <div className={`row-label ${m.attack === null ? 'muted' : ''}`}>
+                          ⚔ ATTACK {m.attack === null ? '(Pick attack)' : ''}
+                        </div>
+                        <div className="move-card-row">
+                          {ATTACK_MOVES.map((atk) => (
+                            <motion.button
+                              key={`atk-${i}-${atk.index}`}
+                              type="button"
+                              whileHover={{ scale: 1.06 }}
+                              animate={m.attack === atk.index ? { scale: [1, 1.1, 1] } : undefined}
+                              transition={{ duration: 0.2 }}
+                              disabled={Boolean(proofBundle) || busy || phase === 'waiting_reveal'}
+                              onClick={() => selectAttack(i, atk.index)}
+                              className={`move-choice attack ${m.attack === atk.index ? 'selected' : ''}`}
+                            >
+                              <span className="icon">{atk.icon}</span>
+                              <span className="name">{atk.name}</span>
+                              <span className="meta">{atk.damage} HP</span>
+                              {m.attack === atk.index && <span className="pick-flash attack" />}
+                              {proofBundle && (
+                                <span className="mini-lock">
+                                  <Lock size={10} />
+                                </span>
+                              )}
+                            </motion.button>
+                          ))}
+                        </div>
+                        <div className={`row-label ${m.defense === null ? 'muted pulse-amber' : ''}`}>
+                          🛡 DEFENSE {m.defense === null ? '(Pick defense)' : ''}
+                        </div>
+                        <div className="move-card-row">
+                          {DEFENSE_MOVES.map((def) => (
+                            <motion.button
+                              key={`def-${i}-${def.index}`}
+                              type="button"
+                              whileHover={{ scale: 1.06 }}
+                              animate={m.defense === def.index ? { scale: [1, 1.1, 1] } : undefined}
+                              transition={{ duration: 0.2 }}
+                              disabled={Boolean(proofBundle) || busy || phase === 'waiting_reveal'}
+                              onClick={() => selectDefense(i, def.index)}
+                              className={`move-choice defense ${m.defense === def.index ? 'selected' : ''} ${
+                                defenseHintPulse?.turn === i && defenseHintPulse.defense === def.index ? 'hint-pulse' : ''
+                              }`}
+                            >
+                              <span className="icon">{def.icon}</span>
+                              <span className="name">{def.label}</span>
+                              <span className="meta">stops {def.stopsIcon}</span>
+                              {m.defense === def.index && <span className="pick-flash defense" />}
+                              {proofBundle && (
+                                <span className="mini-lock">
+                                  <Lock size={10} />
+                                </span>
+                              )}
+                            </motion.button>
+                          ))}
+                        </div>
+                        {complete && <span className="turn-locked">✓ LOCKED</span>}
+                        {burstTurn === i && (
+                          <div className="card-burst" aria-hidden="true">
+                            {Array.from({ length: 6 }).map((_, k) => (
+                              <i key={k} />
+                            ))}
+                          </div>
+                        )}
+                        {proofBundle && (
+                          <div className="turn-lock-overlay">
+                            <Lock size={16} /> <small>Clear proof to re-edit moves</small>
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+                <AnimatePresence>
+                  {comboPreview && (
+                    <motion.div
+                      key={comboPreview.text}
+                      className={`combo-strip ${comboPreview.cls}`}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                    >
+                      {comboPreview.text}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <AnimatePresence mode="wait">
+                  <motion.p
+                    key={strategyLabel.text}
+                    layoutId="strategy-morph"
+                    className={`strategy-label ${strategyLabel.cls}`}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    {strategyLabel.text}
+                  </motion.p>
+                </AnimatePresence>
+                {phase === 'commit' && (
+                  <>
+                    <motion.button
+                      type="button"
+                      className={battleCryBtnClass}
+                      disabled={!movesReady || proofLoading || busy}
+                      onClick={() => void handleGenerateProof()}
+                      title={!movesReady ? 'Select attack and defense for all 3 turns' : ''}
+                      whileHover={movesReady && !proofLoading ? { scale: 1.01 } : undefined}
+                    >
+                      {!movesReady && (
+                        <>
+                          <span className="battle-cry-lock" aria-hidden>
+                            🔒
+                          </span>{' '}
+                          SEAL YOUR FATE — LOCK MOVES
+                        </>
+                      )}
+                      {movesReady && !proofLoading && (
+                        <>
+                          <span aria-hidden>⚔</span> COMMIT TO THE DUEL — FORGE THE PROOF
+                        </>
+                      )}
+                      {proofLoading && (
+                        <span className="battle-cry-loading-line">
+                          {FORGING_BUTTON_LINES[forgingLine]}
+                          <span className="battle-cry-type-cursor" />
+                        </span>
+                      )}
+                    </motion.button>
+                    <ProofTerminal
+                      busy={busy}
+                      proofBundle={proofBundle}
+                      error={error}
+                      sessionId={sessionId}
+                      allMovesComplete={movesReady}
+                      onRetry={() => void handleGenerateProof()}
+                    />
+                    <button className="btn-arena-primary" disabled={busy || !proofBundle || !proofMatchesMoves} onClick={() => void handleSubmitCommit()}>
+                      {busy ? 'Submitting to Soroban...' : '⚔ COMMIT MOVES ON-CHAIN'}
+                    </button>
+                  </>
+                )}
+                {phase === 'waiting_reveal' && <p className="status-pill warning">Waiting for opponent commit...</p>}
+              </>
+            )}
+
+            {phase === 'reveal' && (
+              <>
+                <h3>Reveal</h3>
+                <p className="mono dim">{storedPublicInputs ? `public_inputs bytes: ${storedPublicInputs.length}` : 'No stored inputs found'}</p>
+                {!storedPublicInputs && <p className="inline-error">Reveal locked: commit data missing.</p>}
+                <button className="btn-arena-secondary" disabled={busy || !storedPublicInputs} onClick={() => void handleReveal()}>
+                  👁 REVEAL MOVES
+                </button>
+              </>
+            )}
+
+            {phase === 'resolve' && (
+              <>
+                <h3>Resolve Battle</h3>
+                <button className="btn-arena-amber" disabled={busy} onClick={() => void handleResolve()}>
+                  ⚔ RESOLVE BATTLE
+                </button>
+              </>
+            )}
+
+            {success && <p className="status-pill success">{success}</p>}
+            {error && <p className="status-pill error">{error}</p>}
+          </motion.div>
+        </AnimatePresence>
+      )}
+
+      {phase === 'complete' && gamePlayback && (
+        <div className="cinematic-battle-root">
+          {(() => {
+            const tr = gamePlayback.turn_results[battlePlayback.ui.round] ?? gamePlayback.turn_results[0]!;
+            const p1Atk = attackMeta(tr.player1_move.attack);
+            const p2Def = defenseMeta(tr.player2_move.defense);
+            const p2Atk = attackMeta(tr.player2_move.attack);
+            const p1Def = defenseMeta(tr.player1_move.defense);
+            const banner = ROUND_BANNERS[Math.min(2, battlePlayback.ui.round)] ?? ROUND_BANNERS[0];
+            const isP1Local = isLocalPlayer(gamePlayback.player1, userAddress);
+            const leftAnim = isP1Local ? battlePlayback.ui.p1Anim : battlePlayback.ui.p2Anim;
+            const rightAnim = isP1Local ? battlePlayback.ui.p2Anim : battlePlayback.ui.p1Anim;
+            const localHp = isP1Local ? battlePlayback.ui.hp1 : battlePlayback.ui.hp2;
+            const oppHp = isP1Local ? battlePlayback.ui.hp2 : battlePlayback.ui.hp1;
+            const localAddr = isP1Local ? gamePlayback.player1 : gamePlayback.player2;
+            const oppAddr = isP1Local ? gamePlayback.player2 : gamePlayback.player1;
+            const ab = battlePlayback.ui.attackBroadcast;
+            const attackerYou = ab ? (ab.attackerIsP1 ? isP1Local : !isP1Local) : false;
+            const npTier = (hp: number) => (hp > 60 ? 'hi' : hp > 30 ? 'mid' : 'low');
+
+            return (
+              <>
+                <AnimatePresence>
+                  {ab && (
+                    <motion.div
+                      key={`ab-${ab.attackerIsP1}-${battlePlayback.ui.round}-${battlePlayback.ui.segment}`}
+                      className="attack-broadcast-bar"
+                      initial={{ y: -44, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    >
+                      <span className={attackerYou ? 'attack-broadcast-att' : 'attack-broadcast-def'}>
+                        {attackerYou ? 'YOU' : 'OPPONENT'}
+                      </span>
+                      <span className="attack-broadcast-ico" aria-hidden>
+                        ⚔️
+                      </span>
+                      <span className="attack-broadcast-move">
+                        {ab.moveIcon} {ab.moveName}
+                      </span>
+                      <motion.span
+                        className="attack-broadcast-arrow"
+                        animate={{ x: [-6, 6, -6] }}
+                        transition={{ duration: 0.4, repeat: Infinity, ease: 'easeInOut' }}
+                      >
+                        →
+                      </motion.span>
+                      <span className={attackerYou ? 'attack-broadcast-def' : 'attack-broadcast-att'}>
+                        {attackerYou ? 'OPPONENT' : 'YOU'}
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <AnimatePresence>
+                  {battlePlayback.ui.exchangeFlash && (
+                    <motion.div
+                      className="exchange-flash-bar"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      ⚔ DAMAGE APPLIED ⚔
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <div
+                  className={`cinematic-battle-canvas ${battlePlayback.ui.vignetteHit ? 'cinematic-battle-canvas--vignette' : ''}`}
+                >
+                  <div className="cinematic-arena-row cinematic-arena-row--with-plates">
+                    <div className="cinematic-side cinematic-side--left">
+                      <div className="cinematic-pirate-wrap">
+                        <PirateCharacter side="left" animation={leftAnim} accentColor="#E5133A" />
+                      </div>
+                      <AnimatePresence>
+                        {battlePlayback.ui.floatText && battlePlayback.ui.floatSide === 'left' && (
+                          <motion.div
+                            key={`fl-${battlePlayback.ui.floatText}-${battlePlayback.ui.segment}`}
+                            className={`cinematic-float-above ${battlePlayback.ui.floatTone === 'cyan' ? 'cyan' : 'crimson'}`}
+                            initial={{ y: 8, opacity: 1 }}
+                            animate={{ y: -28, opacity: 0 }}
+                            transition={{ duration: 0.8, ease: 'easeOut' }}
+                          >
+                            {battlePlayback.ui.floatText}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      <div className="cinematic-nameplate">
+                        <div className="cinematic-nameplate-title you">⚡ YOU</div>
+                        <div className="cinematic-nameplate-addr mono">{truncateAddr(localAddr)}</div>
+                        <div className="cinematic-nameplate-hp">
+                          <span className="cinematic-nameplate-hp-label">HP:</span>
+                          <div className="nameplate-hp-track">
+                            <motion.div
+                              className={`nameplate-hp-fill nameplate-hp-fill--${npTier(localHp)}`}
+                              initial={false}
+                              animate={{ width: `${localHp}%` }}
+                              transition={{ duration: 0.8, ease: 'easeOut' }}
+                            />
+                          </div>
+                          <span className="cinematic-nameplate-hp-num">{localHp}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="cinematic-center">
+                      <AnimatePresence>
+                        {battlePlayback.ui.showBanner && (
+                          <motion.div
+                            key={banner}
+                            className="cinematic-round-banner"
+                            initial={{ y: -40, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.35 }}
+                          >
+                            ROUND {battlePlayback.ui.round + 1}: {banner}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <div className="cinematic-cards-row">
+                        <AnimatePresence>
+                          {battlePlayback.ui.showCardsP1 && (
+                            <motion.div
+                              key={`c1-${battlePlayback.ui.round}`}
+                              className="cinematic-move-card"
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                            >
+                              <span>{p1Atk.icon}</span>
+                              <span>{p1Atk.name}</span>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <motion.span
+                          className="cinematic-arrow"
+                          animate={
+                            battlePlayback.ui.segment === 'p1Impact'
+                              ? { x: [0, 60], opacity: [1, 0] }
+                              : battlePlayback.ui.segment === 'p2Impact'
+                                ? { x: [0, -60], opacity: [1, 0] }
+                                : { x: 0, opacity: 0.35 }
+                          }
+                          transition={{ duration: 0.5, ease: 'easeOut' }}
+                        >
+                          →
+                        </motion.span>
+                        <AnimatePresence>
+                          {battlePlayback.ui.showCardsP1 && (
+                            <motion.div
+                              key={`d2-${battlePlayback.ui.round}`}
+                              className="cinematic-move-card defense"
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                            >
+                              <span>{p2Def.icon}</span>
+                              <span>{p2Def.label}</span>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      <div className="cinematic-cards-row cinematic-cards-row--p2">
+                        <AnimatePresence>
+                          {battlePlayback.ui.showCardsP2 && (
+                            <motion.div
+                              key={`c2-${battlePlayback.ui.round}`}
+                              className="cinematic-move-card"
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                            >
+                              <span>{p2Atk.icon}</span>
+                              <span>{p2Atk.name}</span>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <span className="cinematic-arrow cinematic-arrow--flip">→</span>
+                        <AnimatePresence>
+                          {battlePlayback.ui.showCardsP2 && (
+                            <motion.div
+                              key={`d1-${battlePlayback.ui.round}`}
+                              className="cinematic-move-card defense"
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ type: 'spring', stiffness: 260, damping: 22 }}
+                            >
+                              <span>{p1Def.icon}</span>
+                              <span>{p1Def.label}</span>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                    </div>
+                    <div className="cinematic-side cinematic-side--right">
+                      <div className="cinematic-pirate-wrap">
+                        <PirateCharacter side="right" animation={rightAnim} accentColor="#00D4FF" />
+                      </div>
+                      <AnimatePresence>
+                        {battlePlayback.ui.floatText && battlePlayback.ui.floatSide === 'right' && (
+                          <motion.div
+                            key={`fr-${battlePlayback.ui.floatText}-${battlePlayback.ui.segment}`}
+                            className={`cinematic-float-above ${battlePlayback.ui.floatTone === 'cyan' ? 'cyan' : 'crimson'}`}
+                            initial={{ y: 8, opacity: 1 }}
+                            animate={{ y: -28, opacity: 0 }}
+                            transition={{ duration: 0.8, ease: 'easeOut' }}
+                          >
+                            {battlePlayback.ui.floatText}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      <div className="cinematic-nameplate cinematic-nameplate--opp">
+                        <div className="cinematic-nameplate-title opp">OPPONENT</div>
+                        <div className="cinematic-nameplate-addr mono">{truncateAddr(oppAddr)}</div>
+                        <div className="cinematic-nameplate-hp">
+                          <span className="cinematic-nameplate-hp-label">HP:</span>
+                          <div className="nameplate-hp-track">
+                            <motion.div
+                              className={`nameplate-hp-fill nameplate-hp-fill--${npTier(oppHp)}`}
+                              initial={false}
+                              animate={{ width: `${oppHp}%` }}
+                              transition={{ duration: 0.8, ease: 'easeOut' }}
+                            />
+                          </div>
+                          <span className="cinematic-nameplate-hp-num">{oppHp}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <AnimatePresence>
+                  {battlePlayback.ui.showWinnerOverlay && (
+                    <motion.div
+                      className="cinematic-winner-overlay"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      {battlePlayback.ui.outcome === 'win' && (
+                        <motion.div
+                          className="cinematic-winner-win"
+                          initial={{ scale: 0.5, opacity: 0 }}
+                          animate={{ scale: [0.5, 1.2, 1], opacity: 1 }}
+                          transition={{ duration: 0.5 }}
+                        >
+                          <motion.div
+                            className="cinematic-crown"
+                            animate={{ y: [0, -10, 0] }}
+                            transition={{ duration: 0.8, repeat: Infinity }}
+                          >
+                            👑
+                          </motion.div>
+                          <div className="cinematic-winner-title">VICTORY</div>
+                          <div className="cinematic-confetti">
+                            {Array.from({ length: 20 }).map((_, i) => (
+                              <span key={i} className={`cf-${i % 5}`} />
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                      {battlePlayback.ui.outcome === 'loss' && (
+                        <motion.div
+                          className="cinematic-winner-loss"
+                          initial={{ scale: 1, opacity: 1 }}
+                          animate={{ scale: 0.9, opacity: 0.6 }}
+                          transition={{ duration: 0.4 }}
+                        >
+                          <div className="cinematic-skull">💀</div>
+                          <div className="cinematic-winner-title defeat">DEFEATED</div>
+                        </motion.div>
+                      )}
+                      {battlePlayback.ui.outcome === 'draw' && (
+                        <motion.div className="cinematic-winner-draw" initial={{ scale: 0.8 }} animate={{ scale: [0.8, 1.05, 1] }} transition={{ duration: 0.4 }}>
+                          <div className="cinematic-skull">⚔️</div>
+                          <div className="cinematic-winner-title draw">DEADLOCK</div>
+                        </motion.div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {battlePlayback.ui.showEndTable && (
+                  <div className="cinematic-summary-table-wrap">
+                    <table className="cinematic-summary-table">
+                      <thead>
+                        <tr>
+                          <th>ROUND</th>
+                          <th className="cinematic-summary-you">YOU DEALT</th>
+                          <th>OPPONENT DEALT</th>
+                          <th>HP END</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gamePlayback.turn_results.slice(0, 3).map((t, i) => {
+                          const youDealt = isP1Local ? t.player1_damage_dealt : t.player2_damage_dealt;
+                          const oppDealt = isP1Local ? t.player2_damage_dealt : t.player1_damage_dealt;
+                          const youHp = isP1Local ? t.player1_hp_remaining : t.player2_hp_remaining;
+                          const oppHp = isP1Local ? t.player2_hp_remaining : t.player1_hp_remaining;
+                          return (
+                            <tr key={i}>
+                              <td>{i + 1}</td>
+                              <td className="cinematic-summary-you">{youDealt}</td>
+                              <td>{oppDealt}</td>
+                              <td>
+                                YOU:{youHp} / OPP:{oppHp}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {battlePlayback.ui.showEndButtons && (
+                  <div className="cinematic-end-actions">
+                    <button type="button" className="btn-arena-primary" onClick={handleReset}>
+                      ⚔ DUEL AGAIN
+                    </button>
+                    <a className="btn-arena-secondary cinematic-explorer-btn" href={explorerHref} target="_blank" rel="noreferrer">
+                      ↗ Explorer
+                    </a>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {phase === 'complete' && (success || error) && (
+        <p className={`status-pill ${error ? 'error' : 'success'}`}>{error ?? success}</p>
+      )}
+    </div>
+  );
+}
