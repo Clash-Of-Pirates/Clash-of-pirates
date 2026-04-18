@@ -1,23 +1,24 @@
 /**
  * Application constants
- * Configuration loaded from environment variables
+ * Configuration: runtime inject → Vite env → bundled deployment.json → defaults
  */
 
+import { ROOT_DEPLOYMENT } from '@/config/deploymentRoot';
 import { getRuntimeConfig } from './runtimeConfig';
 
 const runtimeConfig = getRuntimeConfig();
 
-// export const SOROBAN_RPC_URL =
-// import.meta.env.DEV 
-// ? 'http://localhost:8000/rpc'  
-// : 'https://soroban-testnet.stellar.org'
-
-export const SOROBAN_RPC_URL = 'https://soroban-testnet.stellar.org'
+export const SOROBAN_RPC_URL =
+  runtimeConfig?.rpcUrl ||
+  (import.meta.env.VITE_SOROBAN_RPC_URL as string | undefined) ||
+  ROOT_DEPLOYMENT.rpcUrl ||
+  'https://soroban-testnet.stellar.org';
 
 export const RPC_URL = SOROBAN_RPC_URL; // Alias for compatibility
 export const NETWORK_PASSPHRASE =
   runtimeConfig?.networkPassphrase ||
-  import.meta.env.VITE_NETWORK_PASSPHRASE ||
+  (import.meta.env.VITE_NETWORK_PASSPHRASE as string | undefined) ||
+  ROOT_DEPLOYMENT.networkPassphrase ||
   'Test SDF Network ; September 2015';
 export const NETWORK = SOROBAN_RPC_URL.includes('testnet') ? 'testnet' : 'mainnet';
 
@@ -31,7 +32,9 @@ export function getContractId(crateName: string): string {
   const runtimeId = runtimeConfig?.contractIds?.[crateName];
   if (runtimeId) return runtimeId;
   const env = import.meta.env as unknown as Record<string, string>;
-  return env[contractEnvKey(crateName)] || '';
+  const fromEnv = env[contractEnvKey(crateName)];
+  if (fromEnv) return fromEnv;
+  return ROOT_DEPLOYMENT.contracts?.[crateName] ?? '';
 }
 
 export function getAllContractIds(): Record<string, string> {
@@ -53,6 +56,13 @@ export function getAllContractIds(): Record<string, string> {
     const crateName = envKey.toLowerCase().replace(/_/g, '-');
     if (!out[crateName]) {
       out[crateName] = value;
+    }
+  }
+
+  if (ROOT_DEPLOYMENT.contracts) {
+    for (const [key, value] of Object.entries(ROOT_DEPLOYMENT.contracts)) {
+      if (!value || out[key]) continue;
+      out[key] = value;
     }
   }
 
