@@ -1,8 +1,10 @@
 /**
- * Bundled repo-root deployment.json (copy in sync with ../../deployment.json after deploy).
- * Lets `bun run setup` / env-less dev work when VITE_* vars are not set.
+ * Bundled defaults from repo-root `deployment.bundle.json` (committed).
+ * Gitignored `deployment.json` from `bun run deploy` is not imported (would break CI);
+ * production uses VITE_* / runtime config. Optional local `deployment.json` can be merged
+ * by copying values into env or regenerating this stub if you need bundled IDs.
  */
-import rootDeployment from '../../../deployment.json';
+import rootDeployment from '../../../deployment.bundle.json';
 
 export type RootDeployment = {
   contracts?: Record<string, string>;
