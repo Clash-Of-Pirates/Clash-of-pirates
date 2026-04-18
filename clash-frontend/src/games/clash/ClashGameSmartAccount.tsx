@@ -66,6 +66,8 @@ export function ClashGameWithSmartAccount() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionRestored, setSessionRestored] = useState<boolean | null>(null);
+  const [fastSigning, setFastSigning] = useState(false);
+  const [fastSigningBusy, setFastSigningBusy] = useState(false);
 
   // Game state — legacy turn-by-turn PvP (contract `Match_*`), separate from ZK session duel
   const [legacyPvpOpen, setLegacyPvpOpen] = useState(false);
@@ -82,6 +84,10 @@ export function ClashGameWithSmartAccount() {
     const id = window.setInterval(() => setLiveTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [liveSyncAt]);
+
+  const refreshFastSigningState = useCallback(() => {
+    setFastSigning(smartAccountService.hasClashSigningSession());
+  }, [smartAccountService]);
 
   // Initialize SmartAccount on mount
   useEffect(() => {
@@ -101,6 +107,7 @@ export function ClashGameWithSmartAccount() {
           }
         }
         setSessionRestored(restored);
+        refreshFastSigningState();
       } catch (err) {
         console.error('❌ Initialization error:', err);
         const message = err instanceof Error ? err.message : 'Failed to initialize SmartAccount';
@@ -109,7 +116,30 @@ export function ClashGameWithSmartAccount() {
     };
 
     init();
-  }, [smartAccountService]);
+  }, [smartAccountService, refreshFastSigningState]);
+
+  const handleStartFastSigning = async () => {
+    if (!CLASH_CONTRACT_ID?.trim()) {
+      setError('Clash contract ID is not configured');
+      return;
+    }
+    setFastSigningBusy(true);
+    setError(null);
+    try {
+      await smartAccountService.startClashSigningSession(CLASH_CONTRACT_ID);
+      refreshFastSigningState();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Fast signing setup failed: ${message}`);
+    } finally {
+      setFastSigningBusy(false);
+    }
+  };
+
+  const handleClearFastSigning = () => {
+    smartAccountService.clearClashSigningSession();
+    refreshFastSigningState();
+  };
 
   const refreshMyMatches = useCallback(async () => {
     if (!userAddress) return;
@@ -216,6 +246,7 @@ export function ClashGameWithSmartAccount() {
   const handleDisconnect = async () => {
     try {
       await smartAccountService.disconnect();
+      setFastSigning(false);
       setUserAddress(null);
       setWalletConnected(false);
       setCurrentMatch(null);
@@ -430,6 +461,34 @@ export function ClashGameWithSmartAccount() {
               {userAddress?.slice(0, 10)}...{userAddress?.slice(-10)}
             </div>
             <div className="wallet-balance">💰 {balance} XLM</div>
+            <div className="wallet-fast-sign" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+              {fastSigning ? (
+                <>
+                  <span className="wallet-description" style={{ fontSize: '0.8rem', margin: 0 }}>
+                    ⚡ Fast signing on (no passkey per move)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleClearFastSigning}
+                    className="btn-secondary"
+                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
+                  >
+                    Clear session key
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleStartFastSigning()}
+                  disabled={fastSigningBusy || missingClashContract}
+                  className="btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
+                  title="One passkey prompt adds a time-limited key for Clash txs only"
+                >
+                  {fastSigningBusy ? '⏳ Enabling…' : '⚡ Enable fast signing'}
+                </button>
+              )}
+            </div>
             <button onClick={handleDisconnect} className="btn-disconnect">
               Disconnect
             </button>

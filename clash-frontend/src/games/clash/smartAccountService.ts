@@ -1,7 +1,16 @@
-import { SmartAccountKit, IndexedDBStorage } from 'smart-account-kit';
-import type { CreateWalletResult, ConnectWalletResult } from 'smart-account-kit';
+import {
+  SmartAccountKit,
+  IndexedDBStorage,
+  createCallContractContext,
+  createDelegatedSigner,
+  signersEqual,
+} from 'smart-account-kit';
+import type { ContextRule, CreateWalletResult, ConnectWalletResult } from 'smart-account-kit';
+import { submitClashSessionTransaction } from './smart-account/clashSessionSubmit';
+import { Keypair, rpc } from '@stellar/stellar-sdk';
 import { patchSmartAccountKitAuth07 } from './smart-account/patchSmartAccountKitAuth07';
 import { recordOnChainTx } from '@/utils/onChainTxFeed';
+import { calculateValidUntilLedger } from '@/utils/ledgerUtils';
 import { Api } from '@stellar/stellar-sdk/rpc';
 import { Buffer } from 'buffer';
 
@@ -12,6 +21,27 @@ export interface WalletState {
   error: string | null;
 }
 
+/** Delegated Ed25519 signer scoped to a Clash contract via CallContract context rule (no passkey per tx). */
+export interface ClashSigningSession {
+  delegateAddress: string;
+  clashContractId: string;
+  validUntilLedger: number;
+  /** Rule id for AuthPayload.context_rule_ids (stellar-accounts 0.7). */
+  clashContextRuleId: number;
+}
+
+const DELEGATE_SESSION_STORAGE_KEY = 'clash-smart-account-delegate-session-v1';
+
+type StoredClashDelegateSessionV1 = {
+  v: 1;
+  smartAccountContractId: string;
+  delegateSecret: string;
+  delegateAddress: string;
+  clashContractId: string;
+  validUntilLedger: number;
+  clashContextRuleId: number;
+};
+
 export class SmartAccountService {
   private kit: SmartAccountKit | null = null;
   private initialized = false;
@@ -20,6 +50,12 @@ export class SmartAccountService {
   private currentPublicKey: Uint8Array | null = null;
   /** Set after a successful context-rules probe; probe failures still use kit-only signing (no manual legacy path). */
   private walletCompatibilityMode: 'context-rules' | null = null;
+
+  /**
+   * Short-lived delegated signer for Clash `CallContract` context rule.
+   * Secret is in memory (`externalSigners`) and persisted in `sessionStorage` until expiration.
+   */
+  private clashSigningSession: ClashSigningSession | null = null;
 
   constructor(
     private rpcUrl: string,
@@ -194,6 +230,8 @@ export class SmartAccountService {
   async resetLocalWalletState(): Promise<void> {
     if (!this.kit) throw new Error('SmartAccountService not initialized');
 
+    this.clearClashSigningSessionMemory();
+
     try {
       await this.kit.disconnect();
     } catch (error) {
@@ -283,14 +321,273 @@ export class SmartAccountService {
   }
 
   /**
+   * Start a gameplay session: one passkey approval adds a time-bounded delegated signer for the Clash contract only.
+   * Subsequent Clash txs can use {@link signAndSubmit} with `clashContractId` to sign with Ed25519 (no WebAuthn).
+   */
+  async startClashSigningSession(
+    clashContractId: string,
+    ttlMinutes: number = 120
+  ): Promise<void> {
+    if (!this.kit) throw new Error('SmartAccountService not initialized');
+    await this.validateConnectedWallet();
+
+    this.clearClashSigningSessionMemory();
+
+    const kp = Keypair.random();
+    const delegateAddress = kp.publicKey();
+    const delegateSecret = kp.secret();
+    this.kit.externalSigners.addFromSecret(delegateSecret);
+
+    /**
+     * `stellar-accounts` authenticates `Signer::Delegated` with `addr.require_auth_for_args((auth_digest,))`.
+     * The Soroban host loads that `G` address as a ledger account; an unfunded random keypair has no
+     * account entry → `Storage(MissingValue)` / "non-existing value for account".
+     */
+    await this.ensureDelegateSignerAccountExists(delegateAddress);
+
+    const validUntilLedger = await calculateValidUntilLedger(this.rpcUrl, ttlMinutes);
+    try {
+      const tx = await this.kit.rules.add(
+        createCallContractContext(clashContractId),
+        'Clash gameplay',
+        [createDelegatedSigner(delegateAddress)],
+        new Map(),
+        validUntilLedger
+      );
+
+      console.log('🔐 Adding Clash delegated signer (passkey once)...');
+      const result = await this.kit.signAndSubmit(tx);
+      const r = result as { success?: boolean; error?: string };
+      if (r.success !== true) {
+        throw new Error(r.error ?? 'Failed to add Clash signing session');
+      }
+
+      const clashContextRuleId = await this.resolveClashContextRuleId(clashContractId, delegateAddress);
+      const walletId = this.currentContractId;
+      if (!walletId) throw new Error('Smart wallet is not connected');
+
+      this.clashSigningSession = {
+        delegateAddress,
+        clashContractId,
+        validUntilLedger,
+        clashContextRuleId,
+      };
+      this.persistDelegateSessionToStorage({
+        smartAccountContractId: walletId,
+        delegateSecret,
+        delegateAddress,
+        clashContractId,
+        validUntilLedger,
+        clashContextRuleId,
+      });
+      console.log('✅ Clash fast signing session active until ledger', validUntilLedger, 'rule', clashContextRuleId);
+    } catch (err) {
+      try {
+        this.kit.externalSigners.remove(delegateAddress);
+      } catch {
+        /* ignore */
+      }
+      throw err;
+    }
+  }
+
+  private async ensureDelegateSignerAccountExists(delegateAddress: string): Promise<void> {
+    const server = new rpc.Server(this.rpcUrl, {
+      allowHttp: this.rpcUrl.startsWith('http://'),
+    });
+    try {
+      await server.getAccount(delegateAddress);
+      return;
+    } catch {
+      /* account missing or RPC error — try funding on testnet */
+    }
+
+    const testnetPassphrase = 'Test SDF Network ; September 2015';
+    if (this.networkPassphrase !== testnetPassphrase) {
+      throw new Error(
+        'Delegated session signing needs the session key address to exist as a funded Stellar account. ' +
+          'Use Stellar testnet (Friendbot), or create and fund this address on your network.'
+      );
+    }
+
+    const ok = await this.fundWallet(delegateAddress);
+    if (!ok) {
+      throw new Error('Friendbot could not fund the session key account. Try again in a moment.');
+    }
+
+    for (let i = 0; i < 30; i += 1) {
+      try {
+        await server.getAccount(delegateAddress);
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+    throw new Error('Session key account did not appear on the ledger after funding.');
+  }
+
+  private async resolveClashContextRuleId(
+    clashContractId: string,
+    delegateAddress: string
+  ): Promise<number> {
+    if (!this.kit) throw new Error('SmartAccountService not initialized');
+
+    const target = createDelegatedSigner(delegateAddress);
+    let lastErr: Error | null = null;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        const tx = await this.kit.rules.getAll(createCallContractContext(clashContractId));
+        await tx.simulate();
+        const sim = tx.simulation;
+        if (!sim || Api.isSimulationError(sim) || !Api.isSimulationSuccess(sim)) {
+          throw new Error('get_context_rules simulation failed');
+        }
+
+        const rules = tx.result as ContextRule[] | undefined;
+        if (!Array.isArray(rules)) {
+          throw new Error('Unexpected get_context_rules result');
+        }
+
+        for (const rule of rules) {
+          for (const s of rule.signers) {
+            if (signersEqual(s, target)) {
+              return rule.id;
+            }
+          }
+        }
+        throw new Error('No matching CallContract rule for delegate');
+      } catch (e) {
+        lastErr = e instanceof Error ? e : new Error(String(e));
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+
+    throw lastErr ?? new Error('Could not resolve context rule id for the Clash delegate signer');
+  }
+
+  private persistDelegateSessionToStorage(data: Omit<StoredClashDelegateSessionV1, 'v'>): void {
+    if (typeof sessionStorage === 'undefined') return;
+    const payload: StoredClashDelegateSessionV1 = { v: 1, ...data };
+    sessionStorage.setItem(DELEGATE_SESSION_STORAGE_KEY, JSON.stringify(payload));
+  }
+
+  /**
+   * Reload delegate key from sessionStorage after navigation (same tab origin).
+   */
+  private async restoreClashDelegateFromStorageIfValid(): Promise<void> {
+    if (!this.kit || !this.currentContractId || this.clashSigningSession) return;
+    if (typeof sessionStorage === 'undefined') return;
+
+    const raw = sessionStorage.getItem(DELEGATE_SESSION_STORAGE_KEY);
+    if (!raw) return;
+
+    let parsed: StoredClashDelegateSessionV1;
+    try {
+      parsed = JSON.parse(raw) as StoredClashDelegateSessionV1;
+    } catch {
+      sessionStorage.removeItem(DELEGATE_SESSION_STORAGE_KEY);
+      return;
+    }
+
+    if (
+      parsed.v !== 1 ||
+      parsed.smartAccountContractId !== this.currentContractId ||
+      typeof parsed.clashContextRuleId !== 'number'
+    ) {
+      return;
+    }
+
+    if (!(await this.isLedgerWithinValidUntil(parsed.validUntilLedger))) {
+      sessionStorage.removeItem(DELEGATE_SESSION_STORAGE_KEY);
+      return;
+    }
+
+    try {
+      this.kit.externalSigners.addFromSecret(parsed.delegateSecret);
+      this.clashSigningSession = {
+        delegateAddress: parsed.delegateAddress,
+        clashContractId: parsed.clashContractId,
+        validUntilLedger: parsed.validUntilLedger,
+        clashContextRuleId: parsed.clashContextRuleId,
+      };
+      console.log('✅ Restored Clash delegate session from sessionStorage');
+    } catch {
+      sessionStorage.removeItem(DELEGATE_SESSION_STORAGE_KEY);
+    }
+  }
+
+  private async isLedgerWithinValidUntil(validUntilLedger: number): Promise<boolean> {
+    const server = new rpc.Server(this.rpcUrl, {
+      allowHttp: this.rpcUrl.startsWith('http://'),
+    });
+    const { sequence } = await server.getLatestLedger();
+    return sequence <= validUntilLedger;
+  }
+
+  /** Drop in-memory session key (does not remove on-chain context rule; it expires by ledger). */
+  clearClashSigningSession(): void {
+    this.clearClashSigningSessionMemory();
+  }
+
+  hasClashSigningSession(): boolean {
+    return this.clashSigningSession !== null;
+  }
+
+  getClashSigningSession(): ClashSigningSession | null {
+    return this.clashSigningSession;
+  }
+
+  private clearClashSigningSessionMemory(): void {
+    if (this.clashSigningSession && this.kit) {
+      try {
+        this.kit.externalSigners.remove(this.clashSigningSession.delegateAddress);
+      } catch {
+        /* ignore */
+      }
+    }
+    this.clashSigningSession = null;
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem(DELEGATE_SESSION_STORAGE_KEY);
+    }
+  }
+
+  private async isClashSessionLedgerValid(): Promise<boolean> {
+    if (!this.clashSigningSession) return false;
+    return this.isLedgerWithinValidUntil(this.clashSigningSession.validUntilLedger);
+  }
+
+  private canUseClashSessionForContract(clashContractId: string): boolean {
+    if (!this.kit || !this.clashSigningSession) return false;
+    if (this.clashSigningSession.clashContractId !== clashContractId) return false;
+    return this.kit.externalSigners.canSignFor(this.clashSigningSession.delegateAddress);
+  }
+
+  /**
    * Sign and submit a transaction with smart account
    * @param meta.label - Shown in the on-chain activity panel (bottom-right)
+   * @param meta.clashContractId - When set and a Clash session is active, uses delegated signing (no passkey)
    */
-  async signAndSubmit(transaction: any, meta?: { label?: string }): Promise<any> {
+  async signAndSubmit(
+    transaction: any,
+    meta?: { label?: string; clashContractId?: string }
+  ): Promise<any> {
     if (!this.kit) throw new Error('SmartAccountService not initialized');
 
     try {
       await this.validateConnectedWallet();
+      await this.restoreClashDelegateFromStorageIfValid();
+      if (meta?.clashContractId && this.canUseClashSessionForContract(meta.clashContractId)) {
+        if (await this.isClashSessionLedgerValid()) {
+          console.log('📝 Signing Clash tx with session key (no passkey)...');
+          const result = await this.signAndSubmitWithSession(transaction, meta);
+          console.log('✅ Transaction signed and submitted');
+          return result;
+        }
+        console.warn('⚠️ Clash signing session expired; clearing and using passkey');
+        this.clearClashSigningSessionMemory();
+      }
+
       console.log('📝 Signing transaction...');
       const result = await this.signAndSubmitWithCompatibility(transaction);
       console.log('✅ Transaction signed and submitted');
@@ -303,6 +600,25 @@ export class SmartAccountService {
       console.error('❌ Failed to sign transaction:', error);
       throw error;
     }
+  }
+
+  private async signAndSubmitWithSession(
+    transaction: any,
+    meta?: { label?: string }
+  ): Promise<any> {
+    if (!this.kit || !this.clashSigningSession) {
+      throw new Error('Clash signing session is not available');
+    }
+
+    const result = await submitClashSessionTransaction(this.kit, transaction, {
+      delegateAddress: this.clashSigningSession.delegateAddress,
+      clashContextRuleId: this.clashSigningSession.clashContextRuleId,
+    });
+    const r = result as { success?: boolean; hash?: string };
+    if (r?.hash && r.success !== false) {
+      recordOnChainTx({ hash: r.hash, label: meta?.label ?? 'Smart account tx' });
+    }
+    return result;
   }
 
   /**
@@ -371,6 +687,7 @@ export class SmartAccountService {
     if (!this.kit) return;
 
     try {
+      this.clearClashSigningSessionMemory();
       await this.kit.disconnect();
       this.currentContractId = null;
       this.currentCredentialId = null;

@@ -972,7 +972,10 @@ export class ClashGameService {
       const matchId = unwrapResultU32(tx.result);
 
       console.log('📝 Signing with SmartAccount...');
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'create_invite' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'create_invite',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'create_invite');
 
       console.log('✅ Invite created with match ID:', matchId);
@@ -1000,7 +1003,10 @@ export class ClashGameService {
       });
 
       console.log('📝 Signing with SmartAccount...');
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'accept_invite' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'accept_invite',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'accept_invite');
 
       console.log('✅ Invite accepted');
@@ -1027,7 +1033,10 @@ export class ClashGameService {
       });
 
       console.log('📝 Signing with SmartAccount...');
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'reject_invite' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'reject_invite',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'reject_invite');
 
       console.log('✅ Invite rejected');
@@ -1056,7 +1065,10 @@ export class ClashGameService {
       });
 
       console.log('📝 Signing with SmartAccount...');
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'play_turn' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'play_turn',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'play_turn');
 
       console.log('✅ Turn played successfully');
@@ -1083,7 +1095,10 @@ export class ClashGameService {
       });
 
       console.log('📝 Signing with SmartAccount...');
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'end_match' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'end_match',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'end_match');
 
       console.log('✅ Match ended');
@@ -1119,7 +1134,10 @@ export class ClashGameService {
         DEFAULT_METHOD_OPTIONS
       );
 
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'start_game' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'start_game',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'start_game');
       console.log('✅ Game started on-chain');
     } catch (error) {
@@ -1149,7 +1167,10 @@ export class ClashGameService {
         DEFAULT_METHOD_OPTIONS
       );
 
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'commit_moves' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'commit_moves',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'commit_moves');
       console.log('✅ commit_moves submitted');
     } catch (error) {
@@ -1181,7 +1202,10 @@ export class ClashGameService {
         DEFAULT_METHOD_OPTIONS
       );
 
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'reveal_moves' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'reveal_moves',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'reveal_moves');
       console.log('✅ reveal_moves submitted');
     } catch (error) {
@@ -1198,7 +1222,10 @@ export class ClashGameService {
       await smartAccountService.ensureSigningReady();
       const tx = await this.baseClient.resolve_battle({ session_id: sessionId }, DEFAULT_METHOD_OPTIONS);
 
-      const result = await smartAccountService.signAndSubmit(tx, { label: 'resolve_battle' });
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'resolve_battle',
+        clashContractId: this.contractId,
+      });
       assertSmartAccountSubmitResult(result, 'resolve_battle');
       console.log('✅ resolve_battle submitted');
     } catch (error) {
