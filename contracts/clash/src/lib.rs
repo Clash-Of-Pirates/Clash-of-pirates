@@ -9,9 +9,20 @@
 //! **Game Hub Integration:**
 //! All games must be played through the Game Hub contract for points tracking.
 
+use soroban_sdk::auth::{Context, CustomAccountInterface};
+use soroban_sdk::crypto::Hash;
 use soroban_sdk::{
-    Address, Bytes, BytesN, Env, IntoVal, String, Vec, contract, contracterror, 
-    contractimpl, contracttype, vec, Vec as SorobanVec, Val, InvokeError, Symbol
+    Address, Bytes, BytesN, Env, IntoVal, Map, String, Vec, contract, contracterror, contractimpl,
+    contracttype, vec, Vec as SorobanVec, Val, InvokeError, Symbol,
+};
+use stellar_accounts::smart_account::{
+    AuthPayload, ContextRule, ContextRuleType, Signer, SmartAccount, SmartAccountError,
+    add_context_rule as smart_add_context_rule, add_policy as smart_add_policy,
+    add_signer as smart_add_signer, do_check_auth as smart_do_check_auth,
+    get_context_rule as smart_get_context_rule, get_context_rules_count as smart_get_context_rules_count,
+    remove_context_rule as smart_remove_context_rule, remove_policy as smart_remove_policy,
+    remove_signer as smart_remove_signer, update_context_rule_name as smart_update_context_rule_name,
+    update_context_rule_valid_until as smart_update_context_rule_valid_until,
 };
 
 // use ultrahonk_soroban_verifier::PROOF_BYTES;
@@ -223,6 +234,30 @@ pub struct GamePlayback {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum MatchState {
+    Created = 0,
+    Accepted = 1,
+    Active = 2,
+    Finished = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PvPMatch {
+    pub match_id: u32,
+    pub player1: Address,
+    pub player2: Address,
+    pub state: MatchState,
+    pub current_turn: u32, // 0 for player1's turn, 1 for player2's turn
+    pub player1_hp: i32,
+    pub player2_hp: i32,
+    pub last_action: Option<Move>,
+    pub winner: Option<Address>,
+}
+
+#[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
     Game(u32),
@@ -234,6 +269,9 @@ pub enum DataKey {
     Challenge(u32),              // Challenge ID -> Challenge
     ChallengeCounter,            // Counter for challenge IDs
     PlayerChallenges(Address),   // Address -> Vec<challenge_id>
+    Match(u32),                  // Match ID -> PvPMatch
+    MatchCounter,                // Counter for match IDs
+    PlayerMatches(Address),      // Address -> Vec<match_id>
 }
 
 // ============================================================================
@@ -574,7 +612,7 @@ impl ClashContract {
     }
 
     // ========================================================================
-    // Existing Game Functions (Updated)
+    // Existing Game Functions 
     // ========================================================================
 
     /// Start a new game between two players with points
@@ -1047,6 +1085,208 @@ pub fn reveal_moves(
         }
     }
 
+    // ============================================================================
+    // PVP Match Functions
+    // ============================================================================
+
+    pub fn create_invite(env: Env, inviter: Address, opponent: Address) -> Result<u32, Error> {
+        inviter.require_auth();
+
+        if inviter == opponent {
+            return Err(Error::CannotChallengeSelf);
+        }
+
+        let match_id: u32 = env.storage()
+            .instance()
+            .get(&DataKey::MatchCounter)
+            .unwrap_or(0);
+        env.storage().instance().set(&DataKey::MatchCounter, &(match_id + 1));
+
+        let pvp_match = PvPMatch {
+            match_id,
+            player1: inviter.clone(),
+            player2: opponent.clone(),
+            state: MatchState::Created,
+            current_turn: 0,
+            player1_hp: STARTING_HP,
+            player2_hp: STARTING_HP,
+            last_action: None,
+            winner: None,
+        };
+
+        env.storage().persistent().set(&DataKey::Match(match_id), &pvp_match);
+
+        // Add to players' lists
+        let mut inviter_matches = env.storage()
+            .persistent()
+            .get::<DataKey, Vec<u32>>(&DataKey::PlayerMatches(inviter.clone()))
+            .unwrap_or(vec![&env]);
+        inviter_matches.push_back(match_id);
+        env.storage().persistent().set(&DataKey::PlayerMatches(inviter), &inviter_matches);
+
+        let mut opponent_matches = env.storage()
+            .persistent()
+            .get::<DataKey, Vec<u32>>(&DataKey::PlayerMatches(opponent.clone()))
+            .unwrap_or(vec![&env]);
+        opponent_matches.push_back(match_id);
+        env.storage().persistent().set(&DataKey::PlayerMatches(opponent), &opponent_matches);
+
+        Ok(match_id)
+    }
+
+    pub fn accept_invite(env: Env, accepter: Address, match_id: u32) -> Result<(), Error> {
+        accepter.require_auth();
+
+        let mut pvp_match: PvPMatch = env.storage()
+            .persistent()
+            .get(&DataKey::Match(match_id))
+            .ok_or(Error::GameNotFound)?;
+
+        if pvp_match.player2 != accepter || pvp_match.state != MatchState::Created {
+            return Err(Error::NotPlayer);
+        }
+
+        pvp_match.state = MatchState::Active;
+        env.storage().persistent().set(&DataKey::Match(match_id), &pvp_match);
+
+        Ok(())
+    }
+
+    pub fn reject_invite(env: Env, rejecter: Address, match_id: u32) -> Result<(), Error> {
+        rejecter.require_auth();
+
+        let mut pvp_match: PvPMatch = env.storage()
+            .persistent()
+            .get(&DataKey::Match(match_id))
+            .ok_or(Error::GameNotFound)?;
+
+        if pvp_match.player2 != rejecter || pvp_match.state != MatchState::Created {
+            return Err(Error::NotPlayer);
+        }
+
+        pvp_match.state = MatchState::Finished;
+        env.storage().persistent().set(&DataKey::Match(match_id), &pvp_match);
+
+        Ok(())
+    }
+
+    pub fn play_turn(env: Env, player: Address, match_id: u32, action: Move) -> Result<(), Error> {
+        player.require_auth();
+
+        let mut pvp_match: PvPMatch = env.storage()
+            .persistent()
+            .get(&DataKey::Match(match_id))
+            .ok_or(Error::GameNotFound)?;
+
+        if pvp_match.state != MatchState::Active {
+            return Err(Error::GameAlreadyEnded);
+        }
+
+        let is_player1 = pvp_match.player1 == player;
+        let is_player2 = pvp_match.player2 == player;
+        if !is_player1 && !is_player2 {
+            return Err(Error::NotPlayer);
+        }
+
+        let current_player_turn = pvp_match.current_turn % 2 == 0;
+        if (current_player_turn && !is_player1) || (!current_player_turn && !is_player2) {
+            return Err(Error::NotPlayer); // not their turn
+        }
+
+        // Apply the action
+        if let Some(last_move) = pvp_match.last_action {
+            // Resolve with last move
+            let (damage1, damage2) = Self::resolve_turn(last_move, action);
+            pvp_match.player1_hp -= damage1;
+            pvp_match.player2_hp -= damage2;
+
+            if pvp_match.player1_hp <= 0 || pvp_match.player2_hp <= 0 {
+                pvp_match.state = MatchState::Finished;
+                if pvp_match.player1_hp <= 0 && pvp_match.player2_hp <= 0 {
+                    pvp_match.winner = None; // draw
+                } else if pvp_match.player1_hp <= 0 {
+                    pvp_match.winner = Some(pvp_match.player2.clone());
+                } else {
+                    pvp_match.winner = Some(pvp_match.player1.clone());
+                }
+            } else {
+                pvp_match.current_turn += 1;
+            }
+            pvp_match.last_action = None;
+        } else {
+            pvp_match.last_action = Some(action);
+            pvp_match.current_turn += 1;
+        }
+
+        env.storage().persistent().set(&DataKey::Match(match_id), &pvp_match);
+
+        Ok(())
+    }
+
+    fn resolve_turn(move1: Move, move2: Move) -> (i32, i32) {
+        let mut damage1 = 0;
+        let mut damage2 = 0;
+
+        // Simple resolution: if attack not defended, deal damage
+        if move1.attack == Attack::Slash && move2.defense != Defense::Dodge {
+            damage2 += 30;
+        }
+        if move1.attack == Attack::Fireball && move2.defense != Defense::Counter {
+            damage2 += 40;
+        }
+        if move1.attack == Attack::Lightning && move2.defense != Defense::Block {
+            damage2 += 35;
+        }
+
+        if move2.attack == Attack::Slash && move1.defense != Defense::Dodge {
+            damage1 += 30;
+        }
+        if move2.attack == Attack::Fireball && move1.defense != Defense::Counter {
+            damage1 += 40;
+        }
+        if move2.attack == Attack::Lightning && move1.defense != Defense::Block {
+            damage1 += 35;
+        }
+
+        (damage1, damage2)
+    }
+
+    pub fn end_match(env: Env, player: Address, match_id: u32) -> Result<(), Error> {
+        player.require_auth();
+
+        let mut pvp_match: PvPMatch = env.storage()
+            .persistent()
+            .get(&DataKey::Match(match_id))
+            .ok_or(Error::GameNotFound)?;
+
+        if pvp_match.player1 != player && pvp_match.player2 != player {
+            return Err(Error::NotPlayer);
+        }
+
+        if pvp_match.state == MatchState::Finished {
+            return Err(Error::GameAlreadyEnded);
+        }
+
+        pvp_match.state = MatchState::Finished;
+        env.storage().persistent().set(&DataKey::Match(match_id), &pvp_match);
+
+        Ok(())
+    }
+
+    pub fn get_match(env: Env, match_id: u32) -> Result<PvPMatch, Error> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Match(match_id))
+            .ok_or(Error::GameNotFound)
+    }
+
+    pub fn get_player_matches(env: Env, player: Address) -> Vec<u32> {
+        env.storage()
+            .persistent()
+            .get::<DataKey, Vec<u32>>(&DataKey::PlayerMatches(player))
+            .unwrap_or(vec![&env])
+    }
+
     // ========================================================================
     // Admin Functions
     // ========================================================================
@@ -1083,5 +1323,82 @@ pub fn reveal_moves(
         let admin: Address = Self::get_admin(env.clone());
         admin.require_auth();
         env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+}
+
+#[contractimpl]
+impl SmartAccount for ClashContract {
+    fn get_context_rules_count(env: &Env) -> u32 {
+        smart_get_context_rules_count(env)
+    }
+
+    fn get_context_rule(env: &Env, context_rule_id: u32) -> ContextRule {
+        smart_get_context_rule(env, context_rule_id)
+    }
+
+    fn add_context_rule(
+        env: &Env,
+        context_type: ContextRuleType,
+        name: String,
+        valid_until: Option<u32>,
+        signers: Vec<Signer>,
+        policies: Map<Address, Val>,
+    ) -> ContextRule {
+        env.current_contract_address().require_auth();
+        smart_add_context_rule(env, &context_type, &name, valid_until, &signers, &policies)
+    }
+
+    fn update_context_rule_name(env: &Env, context_rule_id: u32, name: String) -> ContextRule {
+        env.current_contract_address().require_auth();
+        smart_update_context_rule_name(env, context_rule_id, &name)
+    }
+
+    fn update_context_rule_valid_until(
+        env: &Env,
+        context_rule_id: u32,
+        valid_until: Option<u32>,
+    ) -> ContextRule {
+        env.current_contract_address().require_auth();
+        smart_update_context_rule_valid_until(env, context_rule_id, valid_until)
+    }
+
+    fn remove_context_rule(env: &Env, context_rule_id: u32) {
+        env.current_contract_address().require_auth();
+        smart_remove_context_rule(env, context_rule_id);
+    }
+
+    fn add_signer(env: &Env, context_rule_id: u32, signer: Signer) -> u32 {
+        env.current_contract_address().require_auth();
+        smart_add_signer(env, context_rule_id, &signer)
+    }
+
+    fn remove_signer(env: &Env, context_rule_id: u32, signer_id: u32) {
+        env.current_contract_address().require_auth();
+        smart_remove_signer(env, context_rule_id, signer_id);
+    }
+
+    fn add_policy(env: &Env, context_rule_id: u32, policy: Address, install_param: Val) -> u32 {
+        env.current_contract_address().require_auth();
+        smart_add_policy(env, context_rule_id, &policy, install_param)
+    }
+
+    fn remove_policy(env: &Env, context_rule_id: u32, policy_id: u32) {
+        env.current_contract_address().require_auth();
+        smart_remove_policy(env, context_rule_id, policy_id);
+    }
+}
+
+#[contractimpl]
+impl CustomAccountInterface for ClashContract {
+    type Signature = AuthPayload;
+    type Error = SmartAccountError;
+
+    fn __check_auth(
+        env: Env,
+        signature_payload: Hash<32>,
+        signatures: AuthPayload,
+        auth_contexts: Vec<Context>,
+    ) -> Result<(), SmartAccountError> {
+        smart_do_check_auth(&env, &signature_payload, &signatures, &auth_contexts)
     }
 }
