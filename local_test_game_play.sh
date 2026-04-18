@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# See testnet-option.sh — required for soroban-sdk 25.3+ + experimental_spec_shaking_v2 WASM builds with older stellar-cli.
+export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2="${SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2:-1}"
+
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 CIRCUIT_DIR="$ROOT/duel_commit_circuit"
 CONTRACT_DIR="$ROOT/contracts/rs-soroban-ultrahonk"

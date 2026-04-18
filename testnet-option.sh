@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# stellar-accounts pulls soroban-sdk with `experimental_spec_shaking_v2`. For WASM builds, soroban-sdk's
+# build.rs requires this to be set unless you use stellar-cli >= 25.2.0 (which sets it for you).
+export SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2="${SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2:-1}"
+
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 CIRCUIT_DIR="$ROOT/duel_commit_circuit"
 CONTRACT_DIR="$ROOT/contracts/rs-soroban-ultrahonk"
