@@ -92,3 +92,5 @@ export const DEFAULT_METHOD_OPTIONS = {
 // Auth TTL constants (in minutes)
 export const DEFAULT_AUTH_TTL_MINUTES = 5;
 export const MULTI_SIG_AUTH_TTL_MINUTES = 60;
+/** Delegated Clash session key (`startClashSigningSession`): passkey once, then Ed25519 until this TTL elapses. */
+export const CLASH_DELEGATE_SESSION_TTL_MINUTES = 24 * 60;

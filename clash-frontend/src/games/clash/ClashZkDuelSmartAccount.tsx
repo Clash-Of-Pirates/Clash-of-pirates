@@ -1,6 +1,6 @@
 /**
  * ZK duel flow (commit → reveal → resolve) for smart-account (passkey) wallets.
- * Reuses the same Noir circuit + contract entrypoints as ClashGame.tsx.
+ * Reuses the same Noir circuit + contract entrypoints as the arena ZK duel flow.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Buffer } from 'buffer';

@@ -10,6 +10,7 @@ import { submitClashSessionTransaction } from './smart-account/clashSessionSubmi
 import { Keypair, rpc } from '@stellar/stellar-sdk';
 import { patchSmartAccountKitAuth07 } from './smart-account/patchSmartAccountKitAuth07';
 import { recordOnChainTx } from '@/utils/onChainTxFeed';
+import { CLASH_DELEGATE_SESSION_TTL_MINUTES } from '@/utils/constants';
 import { calculateValidUntilLedger } from '@/utils/ledgerUtils';
 import { Api } from '@stellar/stellar-sdk/rpc';
 import { Buffer } from 'buffer';
@@ -326,7 +327,7 @@ export class SmartAccountService {
    */
   async startClashSigningSession(
     clashContractId: string,
-    ttlMinutes: number = 120
+    ttlMinutes: number = CLASH_DELEGATE_SESSION_TTL_MINUTES
   ): Promise<void> {
     if (!this.kit) throw new Error('SmartAccountService not initialized');
     await this.validateConnectedWallet();
