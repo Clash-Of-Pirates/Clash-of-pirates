@@ -1,13 +1,17 @@
 /**
- * Configuration loaded from environment variables
- * These are set by the setup script after deployment
+ * Shared app config (env + bundled deployment.json + runtime inject).
  */
 
-import { getAllContractIds, getContractId } from './utils/constants';
+import {
+  getAllContractIds,
+  getContractId,
+  NETWORK_PASSPHRASE,
+  RPC_URL,
+} from './utils/constants';
 
 export const config = {
-  rpcUrl: import.meta.env.VITE_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
-  networkPassphrase: import.meta.env.VITE_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
+  rpcUrl: RPC_URL,
+  networkPassphrase: NETWORK_PASSPHRASE,
   contractIds: getAllContractIds(),
 
   // Backwards-compatible aliases for built-in games
