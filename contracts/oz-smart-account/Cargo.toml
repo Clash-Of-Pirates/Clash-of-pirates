@@ -1,0 +1,15 @@
+[package]
+name = "oz-smart-account"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Thin crate to build OpenZeppelin stellar-accounts WASM (see scripts/build-oz-smart-account-wasm.sh)."
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-accounts = "0.7.1"
+stellar-contract-utils = "0.7.1"
