@@ -1,6 +1,11 @@
 /**
  * NoirService - Handles Noir circuit execution and UltraHonk proof generation
  *
+ * The bundled circuit MUST match `duel_commit_circuit/target/duel_commit_circuit.json`
+ * (the VK baked into the deployed UltraHonk verifier). Run `npm run sync:duel-circuit`
+ * in clash-frontend after `nargo compile` in duel_commit_circuit, or builds can prove
+ * a different circuit than the chain verifies.
+ *
  * Output format matches exactly what the shell script produces and what the
  * Soroban verifier contract expects:
  *
@@ -10,16 +15,18 @@
  *   public_inputs = [player_address (32B)] [session_id (32B)] [commitment_hash (32B)]
  *                 = 96 bytes total (3 field elements × 32 bytes each)
  *
- *   proof_bytes   = raw UltraHonk proof bytes, NO header, NO public inputs prepended
- *                 = proof.proof from bb.js generateProof()
+ *   proof_bytes   = raw UltraHonk proof bytes (no public inputs prepended)
+ *                 = proofData.proof from bb.js UltraHonkBackend.generateProof()
  *
- * This mirrors what the script does:
- *   PUB_BYTES = (pub_param_count + 1_for_return_value) × 32  →  96 bytes
- *   public_inputs = first 96 bytes  of proof.with_public_inputs
- *   proof_bytes   = bytes 97..end   of proof.with_public_inputs
+ * public_inputs MUST be the exact limbs returned by the prover (flattened to
+ * 32 bytes each) — not hand-rebuilt from noir.execute().returnValue. Barretenberg
+ * binds the proof to those bytes; any mismatch fails verify_proof on-chain.
  *
- * The commitment hash (Pedersen hash of all moves + address + session) is the
- * circuit's return value — it appears as the LAST 32 bytes of public_inputs.
+ * This mirrors testnet-option.sh: split from `with_public_inputs` — bb.js does
+ * the same split internally and exposes proofData.publicInputs as field strings.
+ *
+ * The commitment hash is the LAST 32 bytes of the flattened public_inputs
+ * (circuit return value as ordered by the ACIR public outputs).
  * The Soroban contract extracts it with:
  *   let commitment_hash = public_inputs[len-32..len]
  */
@@ -120,10 +127,10 @@ export class NoirService {
     }
   
     const proofStart = performance.now();
-    let proof;
+    let proofData: { proof: Uint8Array; publicInputs: string[] };
     
     try {
-      proof = await backend.generateProof(witness, { keccak: true });
+      proofData = await backend.generateProof(witness, { keccak: true });
       const proofTime = ((performance.now() - proofStart) / 1000).toFixed(2);
       console.log(`[4/5] Proof generated in ${proofTime}s`);
     } catch (err) {
@@ -131,20 +138,31 @@ export class NoirService {
       throw new Error(`Proof generation failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   
-    const proofBytes = proof.proof;
+    const proofBytes = proofData.proof;
   
-    // ── 5. Build public_inputs ───────────────────────────────────────────────
-    console.log('[5/5] Building public inputs...');
-  
-    const playerAddressBytes = fieldToBytes32(noirInputs.player_address);
-    const sessionIdBytes     = fieldToBytes32(noirInputs.session_id);
-    const commitmentHashBytes = fieldToBytes32(returnValue as string);
-  
-    const publicInputs = new Uint8Array(96); // 3 × 32
-    publicInputs.set(playerAddressBytes,    0);
-    publicInputs.set(sessionIdBytes,        32);
-    publicInputs.set(commitmentHashBytes,   64);
-  
+    // ── 5. Public inputs: MUST match bb.js / prover (same as on-chain verifier) ─
+    console.log('[5/5] Flattening public inputs from prover…');
+    const publicInputs = flattenFieldStringsToBytes(proofData.publicInputs);
+    if (publicInputs.length !== 96) {
+      console.warn(
+        `[NoirService] Expected 96 bytes of public inputs (3 fields), got ${publicInputs.length}`,
+      );
+    }
+
+    let localOk = false;
+    try {
+      localOk = await backend.verifyProof(proofData, { keccak: true });
+    } catch (e) {
+      console.error('[5/5] Local verify threw:', e);
+    }
+    if (!localOk) {
+      throw new Error(
+        'UltraHonk local verification failed — public_inputs/proof do not match the circuit VK. ' +
+          'Regenerate the proof; if this persists, redeploy the verifier VK for this circuit.',
+      );
+    }
+
+    const commitmentHashBytes = publicInputs.slice(64, 96);
     const commitmentHash = '0x' + bufToHex(commitmentHashBytes);
   
     // ── 6. Build moves_raw for reveal attestation ────────────────────────────
@@ -199,6 +217,30 @@ function fieldToBytes32(hexValue: string): Uint8Array {
     bytes[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
   }
   return bytes;
+}
+
+/**
+ * Same as bb.js `flattenFieldsAsArray` — BN254 field elements as hex strings → 32-byte big-endian limbs.
+ * Used to turn `ProofData.publicInputs` into the `Bytes` the Soroban verifier checks.
+ */
+function flattenFieldStringsToBytes(fields: string[]): Uint8Array {
+  const parts = fields.map((hex) => {
+    const sanitisedHex = BigInt(hex).toString(16).padStart(64, '0');
+    const len = sanitisedHex.length / 2;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      u8[i] = parseInt(sanitisedHex.slice(i * 2, i * 2 + 2), 16);
+    }
+    return u8;
+  });
+  const total = parts.reduce((acc, p) => acc + p.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
 }
 
 /** Uint8Array → lowercase hex string (no 0x prefix) */
