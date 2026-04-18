@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
-import { Lock, ShieldAlert } from 'lucide-react';
+import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { Buffer } from 'buffer';
 import { NoirService, type ClashProofResult } from '@/utils/NoirService';
 import type { ClashGameService } from './clashService';
@@ -12,6 +12,7 @@ import { createEmptyMoves } from '@/components/Clashgamecomponents';
 import { recordSessionLoadActivity } from '@/utils/onChainTxFeed';
 import { CopyChip } from './components/CopyChip';
 import { CLASH_CONTRACT, NETWORK } from '@/utils/constants';
+import { registerDuelParticipants } from '@/services/pointsService';
 
 type ZkPhase = 'create' | 'commit' | 'waiting_reveal' | 'reveal' | 'resolve' | 'complete';
 const STEP_KEYS = ['moves', 'proof', 'commit', 'reveal', 'resolve'] as const;
@@ -790,8 +791,8 @@ type Props = {
   fastSigningBusy?: boolean;
   onSessionKeyActivated?: () => void;
   onSessionIdChange?: (sid: number) => void;
-  /** Session points from `getGame` (same scaling as stake). */
-  sessionTotalPoints?: bigint | null;
+  /** Global points from PointsTracker contract (`get_points`). */
+  sessionTotalPoints?: number | null;
   sessionPointsLoading?: boolean;
   sessionPointsError?: boolean;
   onRefreshSessionPoints?: () => void;
@@ -845,11 +846,10 @@ function allMovesComplete(moves: SelectedMove[]) {
   return moves.every((m) => m.attack !== null && m.defense !== null);
 }
 
-function formatSessionPointsDisplay(raw: bigint | null | undefined): string {
+function formatTrackerPointsDisplay(raw: number | null | undefined): string {
   if (raw === null || raw === undefined) return '--';
-  const n = Number(raw) / 10 ** POINTS_DECIMALS;
-  if (!Number.isFinite(n)) return '--';
-  return Math.round(n).toLocaleString();
+  if (!Number.isFinite(raw)) return '--';
+  return Math.round(raw).toLocaleString();
 }
 
 export function ClashZkArena({
@@ -896,7 +896,7 @@ export function ClashZkArena({
   const [oppRevealToast, setOppRevealToast] = useState(false);
   const [waitingRevealFlash, setWaitingRevealFlash] = useState(false);
   const [pollTick, setPollTick] = useState(0);
-  const pointsAtResolveRef = useRef<bigint | null>(null);
+  const [gameStateSyncing, setGameStateSyncing] = useState(false);
   const wasWaitingForOppRevealRef = useRef(false);
 
   const battlePlayback = useBattlePlayback(gamePlayback, phase === 'complete' && Boolean(gamePlayback), userAddress);
@@ -970,7 +970,17 @@ export function ClashZkArena({
     }
   };
 
+  const lastPointsRegisteredSessionRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!gameState?.player1 || !gameState?.player2) return;
+    if (lastPointsRegisteredSessionRef.current === sessionId) return;
+    lastPointsRegisteredSessionRef.current = sessionId;
+    void registerDuelParticipants(gameState.player1, gameState.player2);
+  }, [sessionId, gameState?.player1, gameState?.player2]);
+
   const loadGameState = useCallback(async () => {
+    setGameStateSyncing(true);
     try {
       const game = await clashService.getGame(sessionId);
       if (!game) return;
@@ -1002,6 +1012,8 @@ export function ClashZkArena({
       if (stored) setStoredPublicInputs(stored);
     } catch {
       /* ignore */
+    } finally {
+      setGameStateSyncing(false);
     }
   }, [clashService, sessionId, userAddress]);
 
@@ -1345,13 +1357,6 @@ export function ClashZkArena({
   }, [phase, commitPhase, proofBundle, proofMatchesMoves]);
 
   useEffect(() => {
-    if (phase === 'resolve' && gameState) {
-      const raw = gameState.player1 === userAddress ? gameState.player1_points : gameState.player2_points;
-      pointsAtResolveRef.current = BigInt(String(raw));
-    }
-  }, [phase, gameState, userAddress]);
-
-  useEffect(() => {
     if (phase === 'reveal' && myRevealed && !bothRevealed) {
       wasWaitingForOppRevealRef.current = true;
     }
@@ -1492,8 +1497,17 @@ export function ClashZkArena({
             })}
           </div>
 
-          <div className="sync-row">
-            <span>Synced {syncLabel}</span>
+          <div className={`sync-row ${gameStateSyncing ? 'sync-row--busy' : ''}`}>
+            <span className="sync-row-left">
+              {gameStateSyncing ? (
+                <>
+                  <Loader2 className="sync-row-spinner" size={14} aria-hidden />
+                  Syncing…
+                </>
+              ) : (
+                <>Synced {syncLabel}</>
+              )}
+            </span>
             <span className={fastSigning ? 'fast-on' : 'fast-off'}>{fastSigning ? 'Fast Sign Active' : 'Passkey Sign'}</span>
           </div>
         </>
@@ -1788,11 +1802,6 @@ export function ClashZkArena({
             const oppAddr = isP1Local ? gamePlayback.player2 : gamePlayback.player1;
             const npTier = (hp: number) => (hp > 60 ? 'hi' : hp > 30 ? 'mid' : 'low');
             const narr = battlePlayback.ui.narration;
-            const duelDeltaPts =
-              sessionTotalPoints != null && pointsAtResolveRef.current != null
-                ? sessionTotalPoints - pointsAtResolveRef.current
-                : null;
-
             return (
               <>
                 <AnimatePresence>
@@ -2028,41 +2037,37 @@ export function ClashZkArena({
 
                 {battlePlayback.ui.showEndTable && (
                   <>
-                  <div className="cinematic-points-summary">
-                    <div className="cinematic-points-duel">
-                      YOUR POINTS THIS DUEL:{' '}
-                      <span
-                        className={
-                          duelDeltaPts == null
-                            ? 'duel-pts-na'
-                            : battlePlayback.ui.outcome === 'win'
-                              ? 'duel-pts-win'
+                  <div className="cinematic-points-summary cinematic-points-summary--tracker">
+                    <div className="cinematic-points-tracker-row">
+                      <div className="cinematic-points-col">
+                        <span className="cinematic-points-col-label">POINTS THIS DUEL</span>
+                        <span
+                          className={
+                            battlePlayback.ui.outcome === 'win'
+                              ? 'cinematic-duel-val cinematic-duel-val--win'
                               : battlePlayback.ui.outcome === 'loss'
-                                ? 'duel-pts-loss'
-                                : 'duel-pts-draw'
-                        }
-                      >
-                        {duelDeltaPts == null
-                          ? '—'
-                          : (() => {
-                              const n = Number(duelDeltaPts) / 10 ** POINTS_DECIMALS;
-                              if (!Number.isFinite(n)) return '—';
-                              const r = Math.round(n);
-                              const s = Math.abs(r).toLocaleString();
-                              return r > 0 ? `+${s}` : r < 0 ? `−${s}` : '0';
-                            })()}
-                      </span>
-                    </div>
-                    <div className="cinematic-points-total">
-                      TOTAL POINTS:{' '}
-                      <span className="cinematic-points-total-val">
-                        {sessionPointsLoading ? '-- pts' : `${formatSessionPointsDisplay(sessionTotalPoints)} pts`}
-                      </span>
-                      {sessionPointsError && onRefreshSessionPoints && (
-                        <button type="button" className="cinematic-points-retry" onClick={() => onRefreshSessionPoints()} aria-label="Retry points">
-                          ↻
-                        </button>
-                      )}
+                                ? 'cinematic-duel-val cinematic-duel-val--loss'
+                                : 'cinematic-duel-val cinematic-duel-val--draw'
+                          }
+                        >
+                          {battlePlayback.ui.outcome === 'win'
+                            ? '+60 (victory!)'
+                            : battlePlayback.ui.outcome === 'loss'
+                              ? '−15'
+                              : '0'}
+                        </span>
+                      </div>
+                      <div className="cinematic-points-col cinematic-points-col--total">
+                        <span className="cinematic-points-col-label">YOUR TOTAL</span>
+                        <span className="cinematic-points-total-inline">
+                          {sessionPointsLoading ? '-- pts' : `${formatTrackerPointsDisplay(sessionTotalPoints)} pts`}
+                        </span>
+                        {sessionPointsError && onRefreshSessionPoints && (
+                          <button type="button" className="cinematic-points-retry" onClick={() => onRefreshSessionPoints()} aria-label="Retry points">
+                            ↻
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="cinematic-summary-table-wrap">

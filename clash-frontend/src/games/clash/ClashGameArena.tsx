@@ -7,6 +7,8 @@ import { ClashGameService } from './clashService';
 import { ClashZkArena } from './ClashZkArena';
 import { CopyChip } from './components/CopyChip';
 import { getContractId, NETWORK_PASSPHRASE, RPC_URL } from '@/utils/constants';
+import { getPlayerPoints } from '@/services/pointsService';
+import { PageLoading } from '@/components/PageLoading';
 import './styles.css';
 
 const CLASH_CONTRACT_ID = getContractId('clash');
@@ -58,16 +60,18 @@ function formatBalanceNum(raw: string | undefined | null): string {
   return n.toFixed(3);
 }
 
-const POINTS_DECIMALS = 7;
-
-function formatSessionPointsDisplay(raw: bigint | null): string {
+function formatTrackerPointsRail(raw: number | null): string {
   if (raw === null) return '--';
-  const n = Number(raw) / 10 ** POINTS_DECIMALS;
-  if (!Number.isFinite(n)) return '--';
-  return Math.round(n).toLocaleString();
+  if (!Number.isFinite(raw)) return '--';
+  return raw.toLocaleString();
 }
 
-export function ClashGameArena() {
+type ClashGameArenaProps = {
+  onOpenLeaderboard?: () => void;
+  onWalletAddressChange?: (address: string | null) => void;
+};
+
+export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: ClashGameArenaProps) {
   const [smartAccountService] = useState(
     () => new SmartAccountService(RPC_URL, NETWORK_PASSPHRASE, ACCOUNT_WASM_HASH, WEBAUTHN_VERIFIER)
   );
@@ -85,9 +89,10 @@ export function ClashGameArena() {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [sessionExpiresLedger, setSessionExpiresLedger] = useState<number | null>(null);
   const [hasActiveSessionKey, setHasActiveSessionKey] = useState(false);
-  const [sessionPoints, setSessionPoints] = useState<bigint | null>(null);
-  const [sessionPointsLoading, setSessionPointsLoading] = useState(false);
-  const [sessionPointsError, setSessionPointsError] = useState(false);
+  const [trackerPoints, setTrackerPoints] = useState<number | null>(null);
+  const [trackerPointsLoading, setTrackerPointsLoading] = useState(false);
+  const [trackerPointsError, setTrackerPointsError] = useState(false);
+  const [arenaReady, setArenaReady] = useState(false);
   const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const balanceAnimFromRef = useRef(0);
 
@@ -95,36 +100,40 @@ export function ClashGameArena() {
     setFastSigning(smartAccountService.hasClashSigningSession());
   }, [smartAccountService]);
 
-  const fetchSessionPoints = useCallback(async () => {
-    if (!userAddress || !activeSessionId?.trim()) {
-      setSessionPoints(null);
-      setSessionPointsLoading(false);
-      setSessionPointsError(false);
+  const fetchTrackerPoints = useCallback(async (opts?: { postRecordSettleMs?: number }) => {
+    if (!userAddress) {
+      setTrackerPoints(null);
+      setTrackerPointsLoading(false);
+      setTrackerPointsError(false);
       return;
     }
-    const sid = parseInt(activeSessionId, 10);
-    if (Number.isNaN(sid) || sid <= 0) {
-      setSessionPoints(null);
-      return;
-    }
-    setSessionPointsLoading(true);
-    setSessionPointsError(false);
+    setTrackerPointsLoading(true);
+    setTrackerPointsError(false);
     try {
-      const g = await clashService.getGame(sid);
-      if (!g) throw new Error('Game not found');
-      const raw = g.player1 === userAddress ? g.player1_points : g.player2_points;
-      setSessionPoints(BigInt(String(raw)));
+      if (opts?.postRecordSettleMs && opts.postRecordSettleMs > 0) {
+        await new Promise((r) => setTimeout(r, opts.postRecordSettleMs));
+      }
+      let pts = await getPlayerPoints(userAddress);
+      if (opts?.postRecordSettleMs && opts.postRecordSettleMs > 0) {
+        await new Promise((r) => setTimeout(r, 400));
+        pts = await getPlayerPoints(userAddress);
+      }
+      setTrackerPoints(pts);
     } catch {
-      setSessionPointsError(true);
-      setSessionPoints(null);
+      setTrackerPointsError(true);
+      setTrackerPoints(null);
     } finally {
-      setSessionPointsLoading(false);
+      setTrackerPointsLoading(false);
     }
-  }, [userAddress, activeSessionId, clashService]);
+  }, [userAddress]);
 
   useEffect(() => {
-    void fetchSessionPoints();
-  }, [fetchSessionPoints]);
+    void fetchTrackerPoints();
+  }, [fetchTrackerPoints]);
+
+  useEffect(() => {
+    onWalletAddressChange?.(userAddress);
+  }, [userAddress, onWalletAddressChange]);
 
   const evaluateSessionKeyUi = useCallback(
     async (address: string | null) => {
@@ -226,6 +235,8 @@ export function ClashGameArena() {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to initialize SmartAccount';
         setError(message);
+      } finally {
+        setArenaReady(true);
       }
     };
     void init();
@@ -376,8 +387,9 @@ export function ClashGameArena() {
       <div className="arena-topbar">
         <div>
           <h2>CLASH</h2>
-          <p>PISTOLS AT DAWN · ZK ARENA</p>
+          <p>CLASH OF TITANS · ARENA</p>
         </div>
+        <div className="arena-topbar-right">
         <div className={`wallet-pill ${walletConnected ? 'connected' : ''}`}>
           <span className={`wallet-pill-dot ${walletConnected ? 'on' : ''}`}>●</span>
           {walletConnected && userAddress ? (
@@ -416,9 +428,17 @@ export function ClashGameArena() {
             </button>
           )}
         </div>
+        {onOpenLeaderboard && (
+          <button type="button" className="arena-nav-leaderboard" onClick={() => onOpenLeaderboard()}>
+            🏆 LEADERBOARD
+          </button>
+        )}
+        </div>
       </div>
 
-      {!walletConnected && (
+      {!arenaReady ? (
+        <PageLoading variant="viewport" title="Initializing arena" subtitle="Restoring wallet session and connecting to the network…" />
+      ) : !walletConnected ? (
         <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="entry-gate">
           <div className="entry-wordmark">CLASH</div>
           <p>Connect wallet to enter the arena</p>
@@ -433,10 +453,10 @@ export function ClashGameArena() {
             <Lock size={18} /> Locked until wallet is validated
           </div>
         </motion.section>
-      )}
+      ) : null}
 
       <AnimatePresence>
-        {walletConnected && userAddress && (
+        {arenaReady && walletConnected && userAddress && (
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="arena-layout">
             <aside className="left-rail">
               <div className="rail-card">
@@ -450,23 +470,28 @@ export function ClashGameArena() {
               </div>
               {activeSessionId && <CopyChip label="SESSION" value={activeSessionId} />}
               <div className="rail-card rail-card-points">
-                <span className="rail-points-label">⚓ TOTAL POINTS</span>
+                <span className="rail-points-label">⚓ YOUR POINTS</span>
                 <div className="rail-points-row">
                   <strong className="rail-points-val">
-                    {sessionPointsLoading ? '-- pts' : `${formatSessionPointsDisplay(sessionPoints)} pts`}
+                    {trackerPointsLoading ? '-- pts' : `${formatTrackerPointsRail(trackerPoints)} pts`}
                   </strong>
-                  {sessionPointsError && (
+                  {trackerPointsError && (
                     <button
                       type="button"
                       className="rail-points-retry"
-                      onClick={() => void fetchSessionPoints()}
+                      onClick={() => void fetchTrackerPoints()}
                       aria-label="Retry loading points"
                     >
                       <RefreshCw size={14} />
                     </button>
                   )}
+                  {onOpenLeaderboard && (
+                    <button type="button" className="rail-points-lb-btn" onClick={() => onOpenLeaderboard()} title="Leaderboard">
+                      🏆 LB
+                    </button>
+                  )}
                 </div>
-                <small className="rail-points-sub">Across duels in this session (on-chain)</small>
+                <small className="rail-points-sub">Across all duels (on-chain)</small>
               </div>
               <div className="rail-card">
                 <span>Balance</span>
@@ -532,11 +557,16 @@ export function ClashGameArena() {
                   void evaluateSessionKeyUi(userAddress);
                 }}
                 onSessionIdChange={(sid) => setActiveSessionId(String(sid))}
-                sessionTotalPoints={sessionPoints}
-                sessionPointsLoading={sessionPointsLoading}
-                sessionPointsError={sessionPointsError}
-                onRefreshSessionPoints={() => void fetchSessionPoints()}
-                onBattleResolved={() => void fetchSessionPoints()}
+                sessionTotalPoints={trackerPoints}
+                sessionPointsLoading={trackerPointsLoading}
+                sessionPointsError={trackerPointsError}
+                onRefreshSessionPoints={() => void fetchTrackerPoints()}
+                onBattleResolved={() =>
+                  void fetchTrackerPoints({
+                    // Allow RPC/ledger to reflect record_result after resolve (awaited in clashService).
+                    postRecordSettleMs: 450,
+                  })
+                }
               />
             </section>
           </motion.div>

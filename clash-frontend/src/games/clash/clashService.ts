@@ -18,6 +18,7 @@ import { Buffer } from 'buffer';
 import { signAndSendViaLaunchtube } from '@/utils/transactionHelper';
 import { calculateValidUntilLedger } from '@/utils/ledgerUtils';
 import { injectSignedAuthEntry } from '@/utils/authEntryUtils';
+import { submitPointsRecordAfterResolve } from '@/services/pointsService';
 
 type ClientOptions = contract.ClientOptions;
 
@@ -1228,6 +1229,20 @@ export class ClashGameService {
       });
       assertSmartAccountSubmitResult(result, 'resolve_battle');
       console.log('✅ resolve_battle submitted');
+
+      try {
+        const pb = await this.getGamePlayback(sessionId);
+        if (pb && !pb.is_draw) {
+          const wStr = pb.winner?.toString?.() ?? '';
+          if (wStr) {
+            const loserAddr = wStr === pb.player1 ? pb.player2 : pb.player1;
+            // Must complete before UI refreshes totals — otherwise get_points simulates stale state.
+            await submitPointsRecordAfterResolve(wStr, loserAddr);
+          }
+        }
+      } catch (e) {
+        console.warn('[resolveBattleWithSmartAccount] points tracker hook:', e);
+      }
     } catch (error) {
       console.error('❌ resolve_battle failed:', error);
       rethrowWithSmartAccountWasmHint(error, 'resolve_battle');
