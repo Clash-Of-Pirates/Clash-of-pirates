@@ -128,15 +128,14 @@ export function useWalletStandalone() {
     return {
       signTransaction: async (
         xdr: string,
-        opts?: { networkPassphrase?: string; address?: string; submit?: boolean; submitUrl?: string }
+        opts?: { networkPassphrase?: string; address?: string; path?: string }
       ) => {
         try {
           ensureKitInitialized(networkPassphrase || NETWORK_PASSPHRASE);
           const result = await StellarWalletsKit.signTransaction(xdr, {
             networkPassphrase: opts?.networkPassphrase || networkPassphrase || NETWORK_PASSPHRASE,
             address: opts?.address || publicKey,
-            submit: opts?.submit,
-            submitUrl: opts?.submitUrl,
+            path: opts?.path,
           });
 
           return {
