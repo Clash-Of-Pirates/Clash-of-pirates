@@ -10,16 +10,39 @@
 
 ---
 
+## Local development
+
+**Clash frontend** (Vite loads env from the **repository root** — keep `.env` next to `clash-frontend/`):
+
+```bash
+cd clash-frontend
+npm install
+npm run dev
+```
+
+- **Build**: `npm run build` (runs `prebuild` to sync `duel_commit_circuit` → `public/circuits/duel_commit_circuit.json`).
+- **Contracts / deploy**: from the repo root, `bun run setup` and `bun run deploy` (see `scripts/`). Workspace Rust contracts: `cargo build` from `contracts/<crate>` as needed.
+
+Set at least `VITE_CLASH_CONTRACT_ID` (and smart-account env vars if you use the passkey flow). Optional leaderboard writes need `VITE_DEV_POINTS_TRACKER_*` — see `clash-frontend/src/services/pointsService.ts`.
+
+---
+
 ## For Players
 
 ### What is Clash of Pirates?
 
 Clash of Pirates is a strategic turn-based dueling game where two pirate captains face off in epic three-round battles. What makes it revolutionary is that **your moves are hidden using zero-knowledge cryptography** - your opponent can't see what you're planning, can't change their moves after seeing yours, and can't cheat. It's provably fair combat on the blockchain.
 
-### CONTRACT ADDRESS 
-- Clash of pirate contract : https://stellar.expert/explorer/testnet/contract/CDCXE2YL7FIWBA36U4U77VPBGYHOC37S6V3MGZJPLRLGP4JJYGANIE2T
-- Game Hub : CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG 
-- Ultrahonk Verifier contract : https://stellar.expert/explorer/testnet/contract/CBBEETBY3OUFHDH6M4R664HQ6IVXTFB5VQAGYBNKTT43YD355SE4ZW4U
+### Contract addresses (testnet)
+
+| Contract | Explorer |
+|----------|----------|
+| **Clash** (game logic) | [CAA6UZLD…N2PI](https://stellar.expert/explorer/testnet/contract/CAA6UZLDJ75NU5QQDIMWXAZRIYOUYDZX6OPREVV6D2GI2DDBIFV5N2PI) |
+| **Game Hub** (economy) | `CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG` |
+| **UltraHonk verifier** | [CDYSIIKC…OLYN5](https://stellar.expert/explorer/testnet/contract/CDYSIIKCU222C7TKJF5XQ5TTZGULQOH4SA7TRAKAHOAGWJG6Q24OLYN5) |
+| **Points tracker** (duel points / leaderboard, optional) | [CBGYEIOW…UMD6S](https://stellar.expert/explorer/testnet/contract/CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S) |
+
+Configure the Clash ID in `.env` as `VITE_CLASH_CONTRACT_ID`. For local admin-signed `record_result`, set `VITE_DEV_POINTS_TRACKER_*` vars (see `clash-frontend/src/services/pointsService.ts`).
 
 ### 🎯 How to Play
 
@@ -75,7 +98,7 @@ Example: Lightning → Lightning → Lightning = 35, 45, 60 damage (if not block
 - **Combo Planning**: Build damage or mix it up?
 - **Defense Priority**: What will they attack with?
 
-###  The Experience
+### The Experience
 
 #### Cinematic Battle Playback
 
@@ -107,38 +130,7 @@ Every battle plays out like an epic movie with:
 - **Defeat**: Respectful skull icon with red effects
 - **Draw**: Balanced scales, mutual honor
 
-#### Pirate Story Scroll
-
-After battle, read the tale in a captain's log on aged parchment:
-
-```
-📜 The Tale of Battle
-   As recorded in the Captain's Log
-
-⚓ Round 1 ⚔
-The battle begins as the ships close in...
-
-🗡️ Captain Redbeard unleashes a Cutlass Slash,
-   strikes true, dealing 30 damage! 
-   Captain Blackwater stands firm with 70 HP.
-
-💥 In retaliation, Captain Blackwater strikes with
-   a Cannon Blast, but it's deflected by a well-timed
-   Raised Shield from Captain Redbeard!
-   No damage dealt!
-
-[HP bars with pirate ship styling]
-
-⚔ ⚔ ⚔
-
-Captain Redbeard emerges victorious, standing tall
-as the opponent's ship lists in the water.
-
-"Another day, another treasure!" roars the triumphant
-captain, as their crew raises the Jolly Roger high.
-
-— Recorded by the ship's scribe 🔱
-```
+After resolution, turn-by-turn playback runs in **`ClashZkArena`** (embedded from **`ClashGameArena`**). Open **Leaderboard** from the header to see tracked duel points (when the points contract is configured).
 
 ---
 
@@ -146,12 +138,15 @@ captain, as their crew raises the Jolly Roger high.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     FRONTEND (vites) - Stellar Gaming Studio │
+│              FRONTEND (Vite + React) — clash-frontend         │
 │                                                               │
 │  ┌────────────┐   ┌──────────────┐  ┌────────────────────┐  │
-│  │   Wallet   │   │ NoirService  │  │ ClashGameService  │  │
-│  │ (Freighter)│   │ (Proof Gen)  │  │ (Contract Calls)  │  │
+│  │   Wallet   │   │ NoirService  │  │ ClashGameService   │  │
+│  │(+ smart acct)│  │ (Proof Gen)  │  │ (Soroban RPC/tx)   │  │
 │  └────────────┘   └──────────────┘  └────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ pointsService (optional) → Points tracker contract       │ │
+│  └──────────────────────────────────────────────────────────┘ │
 └───────────────────────┬──────────────────────────────────────┘
                         │
                         │ 1. commit_moves(public_inputs, proof)
@@ -182,6 +177,10 @@ captain, as their crew raises the Jolly Roger high.
 │  │         GameHub (Points & Economy)                     │ │
 │  │  - start_game() → locks points                        │ │
 │  │  - end_game() → distributes rewards                   │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  points_tracker (optional) — duel totals / leaderboard │ │
+│  │  - record_result / get_points / get_leaderboard       │ │
 │  └────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
 
@@ -243,7 +242,7 @@ Clash of Pirates uses **UltraHonk proofs** (from Aztec's Barretenberg) to enable
 
 #### The Noir Circuit
 
-Location: `circuits/duel_commit_circuit/`
+Location: `duel_commit_circuit/` (repo root). The compiled JSON is synced into `clash-frontend/public/circuits/` for the browser (`npm run prebuild` / `sync:duel-circuit`).
 
 ```noir
 use dep::std::hash::pedersen_hash;
@@ -643,16 +642,19 @@ fn calculate_damage_and_defense(
 ### Tech Stack
 
 **Frontend:**
-- Vite
-- TailwindCSS + Custom CSS animations
-- Stellar SDK + Freighter wallet + devwallet from Stellar game studiio
-- Noir.js + bb.js (proof generation)
+- Vite + React
+- Tailwind CSS + component CSS (`clash-frontend/src/games/clash/styles.css`, etc.)
+- Stellar SDK, Freighter, smart-account-kit (passkey / delegate sessions where configured)
+- Noir.js + bb.js (UltraHonk proof generation in the browser)
 
-**Smart Contracts:**
-- Soroban (Rust-based)
-- UltraHonk verifier in Soroban
-- GameHub for economy
-- ClashContract for game logic
+**Smart contracts (workspace members in root `Cargo.toml`):**
+- **clash** — game logic (commit / reveal / resolve)
+- **mock-game-hub** — economy hooks used by the clash flow
+- **oz-smart-account** — smart-account primitives (as deployed for your stack)
+- **points_tracker** — optional Soroban contract for duel points + leaderboard reads
+
+**Also in repo (excluded from default workspace build):**
+- **rs-soroban-ultrahonk** — UltraHonk verifier contract sources
 
 **Zero-Knowledge:**
 - Noir language (circuit)
@@ -660,49 +662,42 @@ fn calculate_damage_and_defense(
 - UltraHonk proof system
 - Pedersen hash (commitment)
 
-### Project Structure
+### Project structure
 
 ```
-clash-of-pirates/
-├── circuits/
-│   └── duel_commit_circuit/
-│       ├── src/
-│       │   └── main.nr              # Noir circuit
-│       ├── Nargo.toml
-│       └── target/
-│           ├── duel_commit_circuit.json  # Compiled circuit
-│           └── Verifier.toml             # Verification key
-│
+Stellar-Game-Studio/
+├── duel_commit_circuit/              # Noir source (nargo compile)
+│   ├── src/main.nr
+│   └── Nargo.toml
 ├── contracts/
-│   ├── clash/
-│   │   └── src/
-│   │       └── lib.rs                # Main game contract
-│   └── rs-soroban ultrahonk/
-│       └── src/
-│           └── lib.rs                # Verifier contract
-        └── ultrahonk-soroban-verifier/
-│           └── lib.rs 
-    └── mock-game-hub/
-│       └── src/
-│           └── lib.rs  
-
-
-clash-frontend
-    ├── circuits/
-│   │   ├── duel_commit_circuit.json  
-    ├── src/
-    ├── circuits/
-│   │   ├── duel_commit_circuit.json   
-│   ├── components/
-│   │   ├── ClashGame.tsx             # Main game component
-│   │   ├── PirateStoryBox.tsx        # Story scroll
-│   │   └── Clashgamecomponents.tsx   # UI components
-│   ├── services/
-│   │   ├── NoirService.ts            # Proof generation
-│   │   └── clashService.ts           # Contract interaction
-│   └── utils/
-│       ├── NoirService.ts
-│       └── wasmInit.ts               # WASM initialization
+│   ├── clash/src/lib.rs              # Main game contract
+│   ├── mock-game-hub/                # Economy / hub integration
+│   ├── oz-smart-account/             # Smart-account contract
+│   ├── points_tracker/               # Optional points + leaderboard
+│   └── rs-soroban-ultrahonk/         # UltraHonk verifier (see workspace exclude)
+├── clash-frontend/
+│   ├── public/circuits/
+│   │   └── duel_commit_circuit.json  # Synced from duel_commit_circuit (prebuild)
+│   └── src/
+│       ├── App.tsx                   # Arena ↔ Leaderboard routing
+│       ├── main.tsx
+│       ├── components/               # Layout, PageLoading, wallet, ZK UI pieces
+│       ├── pages/Leaderboard.tsx     # Points leaderboard UI
+│       ├── games/clash/
+│       │   ├── ClashGameArena.tsx     # Shell: wallet, smart account, loads ZK duel
+│       │   ├── ClashZkArena.tsx       # ZK commit/reveal/resolve + cinematic playback
+│       │   ├── ClashZkDuelSmartAccount.tsx
+│       │   ├── ClashGameSmartAccount.tsx
+│       │   ├── clashService.ts       # ClashGameService (RPC, txs, playback)
+│       │   └── smartAccountService.ts
+│       ├── services/
+│       │   ├── pointsService.ts      # Optional points_tracker RPC + admin txs
+│       │   ├── wasmInit.ts
+│       │   └── devWalletService.ts
+│       ├── utils/                    # NoirService, RPC helpers, tx helpers, …
+│       └── contracts/points-tracker/ # TS client for points_tracker
+├── scripts/                          # setup, deploy, bindings helpers
+└── testnet-option.sh                 # Reference testnet flows
 ```
 
 ### Data Flow
@@ -756,6 +751,10 @@ clash-frontend
 8. FRONTEND DISPLAYS CINEMATIC PLAYBACK
    └─> ClashContract.get_game_playback(session_id)
        └─> Returns detailed turn-by-turn results with moves
+
+9. (Optional) POINTS TRACKER
+   └─> After resolve, admin or automation may call points_tracker.record_result
+       └─> Leaderboard reads get_leaderboard / get_points via RPC (see pointsService)
 ```
 
 ### Key Contracts
@@ -829,6 +828,12 @@ end_game(session_id, player1_won: bool)
   // Distributes rewards to winner (or refunds on draw)
 ```
 
+#### Points tracker (`contracts/points_tracker`)
+
+**Purpose:** Optional Soroban contract for duel outcome points and a simple on-chain leaderboard (separate from Game Hub wagers).
+
+**Typical flow:** `register_players` (admin) → after a duel resolves, `record_result` (admin) updates scores → UI reads `get_points` / `get_leaderboard`.
+
 ### Frontend Services
 
 #### NoirService
@@ -893,6 +898,10 @@ class ClashGameService {
 }
 ```
 
+#### pointsService (optional)
+
+**Responsibility:** Read leaderboard data from the points tracker via RPC simulation; submit `record_result` / `register_players` when admin classic keys are configured in env (`VITE_DEV_POINTS_TRACKER_*`). Used from `clashService` after battle resolution and by `pages/Leaderboard.tsx`.
+
 
 ## 🔒 Security Audit Checklist
 
@@ -913,8 +922,8 @@ class ClashGameService {
 
 - [x] Core game mechanics
 - [x] ZK commit-reveal
-- [x] Cinematic UI
-- [x] Story scroll
+- [x] Cinematic UI (arena / ZK duel playback)
+- [x] Points tracker + leaderboard UI (optional contract)
 - [ ] Username assignment
 - [ ] Send Challenge via usernames
 - [ ] Tournament mode
