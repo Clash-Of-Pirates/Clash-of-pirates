@@ -4,6 +4,7 @@ version = "0.1.2"
 members = [
   "contracts/mock-game-hub",
   "contracts/clash",
+  "contracts/oz-smart-account",
 ]
 exclude = [
  "contracts/ultrahonk-soroban-contract",
