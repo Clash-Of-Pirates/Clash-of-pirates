@@ -1,10 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { WalletSwitcher } from './WalletSwitcher';
 import { PirateScene } from './PirateScene';
+import { OnChainTxPanel } from './OnChainTxPanel';
 import './Layout.css';
-
-import { WalletStandalone } from './WalletStandalone';
-import './LayoutStandalone.css';
 
 interface LayoutProps {
   title?: string;
@@ -88,8 +85,7 @@ export function Layout({ title, subtitle, children }: LayoutProps) {
               <span>Dev Crew</span>
             </div>
             <div className="wallet-container">
-              <WalletSwitcher />
-              {/* <WalletStandalone /> */}
+              {/* Smart account connection is handled inside the game UI */}
             </div>
           </div>
         </header>
@@ -123,6 +119,8 @@ export function Layout({ title, subtitle, children }: LayoutProps) {
 
       {/* Combat Flash Overlay (for dramatic moments) */}
       <div className="combat-flash" id="combat-flash" />
+
+      <OnChainTxPanel />
     </div>
   );
 }

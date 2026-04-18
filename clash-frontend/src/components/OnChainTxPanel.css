@@ -1,0 +1,134 @@
+.onchain-tx-panel {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 120;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(40vh, 320px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  background: linear-gradient(
+    145deg,
+    rgba(15, 12, 8, 0.92) 0%,
+    rgba(28, 22, 14, 0.94) 100%
+  );
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px);
+  color: #e8dcc8;
+  font-size: 0.75rem;
+}
+
+.onchain-tx-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+  flex-shrink: 0;
+}
+
+.onchain-tx-panel__title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  color: #d4af37;
+}
+
+.onchain-tx-panel__hint {
+  font-size: 0.6rem;
+  opacity: 0.65;
+}
+
+.onchain-tx-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.onchain-tx-panel__empty {
+  padding: 0.75rem 0.75rem 0.85rem;
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.onchain-tx-panel__row {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.onchain-tx-panel__row:last-child {
+  border-bottom: none;
+}
+
+.onchain-tx-panel__row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.onchain-tx-panel__label {
+  font-weight: 600;
+  color: #f0e6d2;
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+}
+
+.onchain-tx-panel__status {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.onchain-tx-panel__status--pending {
+  color: #7eb8ff;
+}
+
+.onchain-tx-panel__status--success {
+  color: #6ecf9b;
+}
+
+.onchain-tx-panel__status--failed {
+  color: #ff8a8a;
+}
+
+.onchain-tx-panel__status--local {
+  color: #c9b87a;
+}
+
+.onchain-tx-panel__detail {
+  margin-top: 0.25rem;
+  font-size: 0.58rem;
+  line-height: 1.35;
+  opacity: 0.75;
+  color: #b8a88c;
+}
+
+.onchain-tx-panel__row-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.2rem;
+  opacity: 0.85;
+  font-size: 0.65rem;
+}
+
+.onchain-tx-panel__hash {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.6rem;
+  color: #a8c7ff;
+  text-decoration: none;
+}
+
+.onchain-tx-panel__hash:hover {
+  text-decoration: underline;
+}
