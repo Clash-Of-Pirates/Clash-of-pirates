@@ -5,9 +5,13 @@ import {
   type GamePlayback, 
   type Move,
   type BattleResult,
+  type PvPMatch,
+  type MatchState,
   Attack,
   Defense
 } from './bindings';
+import type { Result, u32 } from '@stellar/stellar-sdk/contract';
+import type { SmartAccountService } from './smartAccountService';
 import { NETWORK_PASSPHRASE, RPC_URL, DEFAULT_METHOD_OPTIONS, DEFAULT_AUTH_TTL_MINUTES, MULTI_SIG_AUTH_TTL_MINUTES } from '@/utils/constants';
 import { contract, TransactionBuilder, StrKey, xdr, Address, authorizeEntry, rpc } from '@stellar/stellar-sdk';
 import { Buffer } from 'buffer';
@@ -16,6 +20,66 @@ import { calculateValidUntilLedger } from '@/utils/ledgerUtils';
 import { injectSignedAuthEntry } from '@/utils/authEntryUtils';
 
 type ClientOptions = contract.ClientOptions;
+
+function unwrapResultU32(res: Result<u32> | null | undefined): number {
+  if (res == null) {
+    throw new Error('Missing contract return value (expected simulated create_invite result)');
+  }
+  const anyRes = res as {
+    isOk?: () => boolean;
+    unwrap?: () => bigint | number;
+    unwrapErr?: () => unknown;
+    tag?: string;
+    values?: readonly unknown[];
+  };
+  if (typeof anyRes.isOk === 'function') {
+    if (!anyRes.isOk()) {
+      const err =
+        typeof anyRes.unwrapErr === 'function' ? anyRes.unwrapErr() : 'contract error';
+      throw new Error(`create_invite: ${String(err)}`);
+    }
+    if (typeof anyRes.unwrap === 'function') return Number(anyRes.unwrap());
+  }
+  if (anyRes.tag === 'Ok' && anyRes.values?.length) {
+    return Number(anyRes.values[0]);
+  }
+  throw new Error(`Unexpected Result<u32> shape: ${JSON.stringify(res)}`);
+}
+
+/** smart-account-kit `signAndSubmit` / legacy path return `TransactionResult`-shaped objects */
+function assertSmartAccountSubmitResult(result: unknown, action: string): void {
+  if (result == null) {
+    throw new Error(`${action}: empty submission result`);
+  }
+  const r = result as { success?: boolean; error?: string };
+  if (r.success === false) {
+    throw new Error(`${action}: ${r.error ?? 'transaction failed'}`);
+  }
+  if (r.success === true) return;
+  throw new Error(`${action}: unexpected submission result: ${JSON.stringify(result)}`);
+}
+
+function isMissingContextRulesSimulation(msg: string): boolean {
+  if (!msg.includes('get_context_rules')) return false;
+  const m = msg.toLowerCase();
+  return (
+    m.includes('non-existent') ||
+    m.includes('missingvalue') ||
+    m.includes('wasmvm')
+  );
+}
+
+/** Passkey wallet WASM on-chain must expose get_context_rules (stellar-accounts / smart-account-kit). */
+function rethrowWithSmartAccountWasmHint(err: unknown, action: string): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (isMissingContextRulesSimulation(msg)) {
+    throw new Error(
+      `${action}: Simulation hit your smart account contract without a working get_context_rules export. ` +
+        `Create a new passkey wallet with "Create Fresh Wallet" (uses VITE_ACCOUNT_WASM_HASH) or deploy a stellar-accounts-compatible wallet; older wallets cannot authorize Clash calls. Original: ${msg}`
+    );
+  }
+  throw err instanceof Error ? err : new Error(String(err));
+}
 
 /**
  * Service for interacting with the ClashGame contract
@@ -454,6 +518,159 @@ export class ClashGameService {
   }
 
   // ========================================================================
+  // PVP Match Functions
+  // ========================================================================
+
+  async createInvite(
+    inviter: string,
+    opponent: string,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>
+  ): Promise<number> {
+    const client = this.createSigningClient(inviter, signer);
+    const tx = await client.create_invite({ inviter, opponent });
+    const sentTx = await signAndSendViaLaunchtube(tx);
+
+    if (sentTx.getTransactionResponse?.status === 'FAILED') {
+      const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+      throw new Error(`Failed to create invite: ${errorMessage}`);
+    }
+
+    if (sentTx.result.isOk && sentTx.result.isOk()) {
+      console.log(`[createInvite] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
+      return sentTx.result.unwrap();
+    }
+
+    throw new Error('Failed to create invite');
+  }
+
+  async acceptInvite(
+    accepter: string,
+    matchId: number,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>
+  ): Promise<void> {
+    const client = this.createSigningClient(accepter, signer);
+    const tx = await client.accept_invite({ accepter, match_id: matchId });
+    const sentTx = await signAndSendViaLaunchtube(tx);
+
+    if (sentTx.getTransactionResponse?.status === 'FAILED') {
+      const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+      throw new Error(`Failed to accept invite: ${errorMessage}`);
+    }
+
+    if (sentTx.result.isOk && sentTx.result.isOk()) {
+      console.log(`[acceptInvite] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
+      return;
+    }
+
+    throw new Error('Failed to accept invite');
+  }
+
+  async rejectInvite(
+    rejecter: string,
+    matchId: number,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>
+  ): Promise<void> {
+    const client = this.createSigningClient(rejecter, signer);
+    const tx = await client.reject_invite({ rejecter, match_id: matchId });
+    const sentTx = await signAndSendViaLaunchtube(tx);
+
+    if (sentTx.getTransactionResponse?.status === 'FAILED') {
+      const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+      throw new Error(`Failed to reject invite: ${errorMessage}`);
+    }
+
+    if (sentTx.result.isOk && sentTx.result.isOk()) {
+      console.log(`[rejectInvite] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
+      return;
+    }
+
+    throw new Error('Failed to reject invite');
+  }
+
+  async playTurn(
+    player: string,
+    matchId: number,
+    move: Move,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>
+  ): Promise<void> {
+    const client = this.createSigningClient(player, signer);
+    const tx = await client.play_turn({ player, match_id: matchId, action: move });
+    const sentTx = await signAndSendViaLaunchtube(tx);
+
+    if (sentTx.getTransactionResponse?.status === 'FAILED') {
+      const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+      throw new Error(`Failed to play turn: ${errorMessage}`);
+    }
+
+    if (sentTx.result.isOk && sentTx.result.isOk()) {
+      console.log(`[playTurn] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
+      return;
+    }
+
+    throw new Error('Failed to play turn');
+  }
+
+  async endMatch(
+    player: string,
+    matchId: number,
+    signer: Pick<contract.ClientOptions, 'signTransaction' | 'signAuthEntry'>
+  ): Promise<void> {
+    const client = this.createSigningClient(player, signer);
+    const tx = await client.end_match({ player, match_id: matchId });
+    const sentTx = await signAndSendViaLaunchtube(tx);
+
+    if (sentTx.getTransactionResponse?.status === 'FAILED') {
+      const errorMessage = this.extractErrorFromDiagnostics(sentTx.getTransactionResponse);
+      throw new Error(`Failed to end match: ${errorMessage}`);
+    }
+
+    if (sentTx.result.isOk && sentTx.result.isOk()) {
+      console.log(`[endMatch] ✅ tx hash: ${sentTx.sendTransactionResponse?.hash}`);
+      return;
+    }
+
+    throw new Error('Failed to end match');
+  }
+
+  async getMatch(matchId: number): Promise<PvPMatch> {
+    const tx = await this.baseClient.get_match({ match_id: matchId });
+    const result = await tx.simulate();
+
+    if (result.result.isOk && result.result.isOk()) {
+      return result.result.unwrap();
+    }
+
+    throw new Error('Failed to get match');
+  }
+
+  async getPlayerMatches(player: string): Promise<number[]> {
+    const tx = await this.baseClient.get_player_matches({ player });
+    const sim = await tx.simulate();
+    const raw = sim.result;
+    if (raw == null) {
+      throw new Error('Failed to get player matches');
+    }
+    const asAny = raw as {
+      isOk?: () => boolean;
+      unwrap?: () => unknown;
+    };
+    let vec: unknown = raw;
+    if (typeof asAny.isOk === 'function' && typeof asAny.unwrap === 'function') {
+      if (!asAny.isOk()) {
+        throw new Error('get_player_matches returned an error');
+      }
+      vec = asAny.unwrap();
+    }
+    if (Array.isArray(vec)) {
+      return vec.map((n) => Number(n));
+    }
+    if (vec && typeof vec === 'object' && Symbol.iterator in vec) {
+      return Array.from(vec as unknown as ArrayLike<number>).map(Number);
+    }
+    throw new Error('Unexpected get_player_matches return shape');
+  }
+
+  // ========================================================================
   // Multi-Sig Game Start 
   // ========================================================================
 
@@ -733,6 +950,260 @@ export class ClashGameService {
     } catch (err) {
       console.error('Failed to extract error from diagnostics:', err);
       return 'Transaction failed with unknown error';
+    }
+  }
+
+  /**
+   * Create PVP invite using SmartAccount signing
+   */
+  async createInviteWithSmartAccount(
+    inviter: string,
+    opponent: string,
+    smartAccountService: SmartAccountService
+  ): Promise<number> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      console.log('🎮 Creating PVP invite...');
+      const tx = await this.baseClient.create_invite({
+        inviter,
+        opponent,
+      });
+
+      const matchId = unwrapResultU32(tx.result);
+
+      console.log('📝 Signing with SmartAccount...');
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'create_invite' });
+      assertSmartAccountSubmitResult(result, 'create_invite');
+
+      console.log('✅ Invite created with match ID:', matchId);
+      return matchId;
+    } catch (error) {
+      console.error('❌ Create invite failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'create_invite');
+    }
+  }
+
+  /**
+   * Accept PVP invite using SmartAccount signing
+   */
+  async acceptInviteWithSmartAccount(
+    accepter: string,
+    matchId: number,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      console.log('🎮 Accepting PVP invite...');
+      const tx = await this.baseClient.accept_invite({
+        accepter,
+        match_id: matchId,
+      });
+
+      console.log('📝 Signing with SmartAccount...');
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'accept_invite' });
+      assertSmartAccountSubmitResult(result, 'accept_invite');
+
+      console.log('✅ Invite accepted');
+    } catch (error) {
+      console.error('❌ Accept invite failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'accept_invite');
+    }
+  }
+
+  /**
+   * Reject PVP invite using SmartAccount signing
+   */
+  async rejectInviteWithSmartAccount(
+    rejecter: string,
+    matchId: number,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      console.log('🎮 Rejecting PVP invite...');
+      const tx = await this.baseClient.reject_invite({
+        rejecter,
+        match_id: matchId,
+      });
+
+      console.log('📝 Signing with SmartAccount...');
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'reject_invite' });
+      assertSmartAccountSubmitResult(result, 'reject_invite');
+
+      console.log('✅ Invite rejected');
+    } catch (error) {
+      console.error('❌ Reject invite failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'reject_invite');
+    }
+  }
+
+  /**
+   * Play turn using SmartAccount signing
+   */
+  async playTurnWithSmartAccount(
+    player: string,
+    matchId: number,
+    move: Move,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      console.log('🎮 Playing turn...');
+      const tx = await this.baseClient.play_turn({
+        player,
+        match_id: matchId,
+        action: move,
+      });
+
+      console.log('📝 Signing with SmartAccount...');
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'play_turn' });
+      assertSmartAccountSubmitResult(result, 'play_turn');
+
+      console.log('✅ Turn played successfully');
+    } catch (error) {
+      console.error('❌ Play turn failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'play_turn');
+    }
+  }
+
+  /**
+   * End match using SmartAccount signing
+   */
+  async endMatchWithSmartAccount(
+    player: string,
+    matchId: number,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      console.log('🎮 Ending match...');
+      const tx = await this.baseClient.end_match({
+        player,
+        match_id: matchId,
+      });
+
+      console.log('📝 Signing with SmartAccount...');
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'end_match' });
+      assertSmartAccountSubmitResult(result, 'end_match');
+
+      console.log('✅ Match ended');
+    } catch (error) {
+      console.error('❌ End match failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'end_match');
+    }
+  }
+
+  // ========================================================================
+  // ZK session game (commit / reveal) — SmartAccount signing
+  // ========================================================================
+
+  async startGameWithSmartAccount(
+    sessionId: number,
+    player1: string,
+    player2: string,
+    player1Points: bigint,
+    player2Points: bigint,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      console.log('🎮 start_game (ZK session)...');
+      const tx = await this.baseClient.start_game(
+        {
+          session_id: sessionId,
+          player1,
+          player2,
+          player1_points: player1Points,
+          player2_points: player2Points,
+        },
+        DEFAULT_METHOD_OPTIONS
+      );
+
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'start_game' });
+      assertSmartAccountSubmitResult(result, 'start_game');
+      console.log('✅ Game started on-chain');
+    } catch (error) {
+      console.error('❌ start_game failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'start_game');
+    }
+  }
+
+  async commitMovesWithSmartAccount(
+    sessionId: number,
+    player: string,
+    publicInputs: Uint8Array | Buffer,
+    proofBytes: Uint8Array | Buffer,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      const pub = Buffer.isBuffer(publicInputs) ? publicInputs : Buffer.from(publicInputs);
+      const proof = Buffer.isBuffer(proofBytes) ? proofBytes : Buffer.from(proofBytes);
+      const tx = await this.baseClient.commit_moves(
+        {
+          session_id: sessionId,
+          player,
+          public_inputs: pub,
+          proof_bytes: proof,
+        },
+        DEFAULT_METHOD_OPTIONS
+      );
+
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'commit_moves' });
+      assertSmartAccountSubmitResult(result, 'commit_moves');
+      console.log('✅ commit_moves submitted');
+    } catch (error) {
+      console.error('❌ commit_moves failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'commit_moves');
+    }
+  }
+
+  async revealMovesWithSmartAccount(
+    sessionId: number,
+    player: string,
+    publicInputs: Uint8Array | Buffer,
+    moves: Move[],
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    if (moves.length !== 3) {
+      throw new Error('Must provide exactly 3 moves');
+    }
+    try {
+      await smartAccountService.ensureSigningReady();
+      const pub = Buffer.isBuffer(publicInputs) ? publicInputs : Buffer.from(publicInputs);
+      const tx = await this.baseClient.reveal_moves(
+        {
+          session_id: sessionId,
+          player,
+          public_inputs: pub,
+          moves,
+        },
+        DEFAULT_METHOD_OPTIONS
+      );
+
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'reveal_moves' });
+      assertSmartAccountSubmitResult(result, 'reveal_moves');
+      console.log('✅ reveal_moves submitted');
+    } catch (error) {
+      console.error('❌ reveal_moves failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'reveal_moves');
+    }
+  }
+
+  async resolveBattleWithSmartAccount(
+    sessionId: number,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      const tx = await this.baseClient.resolve_battle({ session_id: sessionId }, DEFAULT_METHOD_OPTIONS);
+
+      const result = await smartAccountService.signAndSubmit(tx, { label: 'resolve_battle' });
+      assertSmartAccountSubmitResult(result, 'resolve_battle');
+      console.log('✅ resolve_battle submitted');
+    } catch (error) {
+      console.error('❌ resolve_battle failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'resolve_battle');
     }
   }
 }
