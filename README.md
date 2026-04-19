@@ -923,7 +923,7 @@ class ClashGameService {
 - [x] Core game mechanics
 - [x] ZK commit-reveal
 - [x] Cinematic UI (arena / ZK duel playback)
-- [x] Points tracker + leaderboard UI (optional contract)
+- [x] Points tracker + leaderboard UI 
 - [ ] Username assignment
 - [ ] Send Challenge via usernames
 - [ ] Tournament mode
