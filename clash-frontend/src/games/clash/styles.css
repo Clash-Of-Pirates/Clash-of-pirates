@@ -1,5 +1,9 @@
 /* Arena shell */
-.arena-game-shell { position: relative; }
+.arena-game-shell {
+  position: relative;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 .arena-topbar {
   display: flex;
   justify-content: space-between;
@@ -58,12 +62,68 @@
   text-align: center;
   gap: 0.75rem;
 }
+.entry-gate--busy .entry-gate-inner {
+  opacity: 0.35;
+  pointer-events: none;
+  user-select: none;
+}
+.entry-gate-busy-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  background: rgba(10, 10, 14, 0.82);
+  backdrop-filter: blur(6px);
+  border-radius: inherit;
+}
+.entry-gate-spinner {
+  color: #00d4ff;
+  animation: syncSpin 0.9s linear infinite;
+}
+.entry-gate-busy-text {
+  margin: 0;
+  font-size: 1rem;
+  color: #f0f0f5;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.entry-gate-busy-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #8a8a9a;
+  max-width: 280px;
+}
+.entry-gate-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
 .entry-wordmark { font-size: 8rem; line-height: 0.9; color: #f0f0f5; text-shadow: 0 0 30px rgba(229,19,58,0.4); }
 .lock-overlay {
   margin-top: 1rem; display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center;
   color: #f5a623; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase;
 }
-.gate-btn { width: min(420px, 82vw); margin: 0 auto; }
+.gate-btn {
+  width: min(420px, 82vw);
+  margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.gate-btn-spinner {
+  flex-shrink: 0;
+  animation: syncSpin 0.9s linear infinite;
+}
 
 .arena-layout {
   display: grid;
@@ -85,7 +145,13 @@
 
 .center-stage { min-width: 0; }
 
-.duel-shell { display: flex; flex-direction: column; gap: 0.75rem; }
+.duel-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 .duel-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0.75rem; }
 
 .arena-stepper {
@@ -144,6 +210,16 @@
   text-transform: uppercase;
   letter-spacing: 0.12em;
   margin-top: 0.45rem;
+}
+.btn-arena-primary--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  cursor: wait;
+}
+.start-duel-btn-spinner {
+  animation: syncSpin 0.85s linear infinite;
 }
 .btn-arena-secondary {
   width: 100%;
@@ -972,6 +1048,7 @@ button:disabled {
   border: 1px solid #00ff41;
   overflow: hidden;
   font-family: "JetBrains Mono", var(--font-mono), monospace;
+  clear: both;
 }
 
 .zk-proof-terminal--valid {
@@ -1172,17 +1249,22 @@ button:disabled {
 /* Cinematic battle */
 .cinematic-battle-root {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   background: #06060c;
   border: 1px solid rgba(255, 255, 255, 0.06);
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  overflow-x: hidden;
 }
 
 .cinematic-battle-canvas {
   position: relative;
   min-height: 280px;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .cinematic-battle-header {
@@ -1952,6 +2034,60 @@ button:disabled {
   align-items: flex-end;
 }
 
+/* Playback (complete phase): face-off row — avatars left/right, center = cards */
+.cinematic-arena-row--playback-faceoff {
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 1.15fr) minmax(0, 1fr);
+  align-items: flex-end;
+  gap: 0.35rem 0.5rem;
+  min-height: 150px;
+}
+
+.cinematic-arena-row--playback-faceoff .cinematic-center {
+  order: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.cinematic-pirate-wrap--faceoff {
+  position: relative;
+  width: auto;
+  max-width: 100%;
+  min-height: 76px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.pirate-faceoff-scale {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform: scale(0.68);
+  transform-origin: bottom center;
+  width: 68px;
+  height: 86px;
+  pointer-events: none;
+}
+
+.cinematic-arena-row--playback-faceoff .cinematic-nameplate {
+  max-width: 100%;
+  width: 100%;
+}
+
+.cinematic-arena-row--playback-faceoff .cinematic-float-above {
+  top: 0;
+  font-size: clamp(16px, 4.5vw, 22px);
+  max-width: min(100px, 28vw);
+  text-align: center;
+  line-height: 1;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.cinematic-battle-canvas:has(.cinematic-arena-row--playback-faceoff) {
+  min-height: 200px;
+}
+
 .cinematic-side {
   position: relative;
   display: flex;
@@ -2103,9 +2239,20 @@ button:disabled {
   cursor: pointer;
   text-decoration: underline;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
-.wallet-balance-fund:hover {
+.wallet-balance-fund:hover:not(:disabled) {
   color: #ff4d6a;
+}
+.wallet-balance-fund:disabled {
+  opacity: 0.85;
+  cursor: wait;
+  text-decoration: none;
+}
+.wallet-balance-fund-spinner {
+  animation: syncSpin 0.9s linear infinite;
 }
 
 .rail-you-label {
@@ -2198,6 +2345,14 @@ button:disabled {
   color: #00d4ff;
   border-radius: 4px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.rail-btn-spinner {
+  flex-shrink: 0;
+  animation: syncSpin 0.9s linear infinite;
 }
 .rail-btn-create-session:hover:not(:disabled) {
   background: rgba(0, 212, 255, 0.08);
@@ -2208,6 +2363,10 @@ button:disabled {
 }
 .rail-fast-sign-active {
   border-color: rgba(37, 211, 102, 0.35) !important;
+}
+.rail-fast-sign--creating {
+  border-color: rgba(0, 212, 255, 0.45) !important;
+  box-shadow: 0 0 14px rgba(0, 212, 255, 0.12);
 }
 
 /* Session onboarding + toast */
@@ -2256,7 +2415,7 @@ button:disabled {
 .clash-onboarding-primary {
   width: 100%;
   margin-top: 1rem;
-  height: 52px;
+  min-height: 52px;
   font-family: var(--font-display);
   font-size: 18px;
   letter-spacing: 0.06em;
@@ -2266,6 +2425,14 @@ button:disabled {
   color: #fff;
   border-radius: 6px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.clash-onboarding-btn-spinner {
+  flex-shrink: 0;
+  animation: syncSpin 0.9s linear infinite;
 }
 .clash-onboarding-primary:hover:not(:disabled) {
   filter: brightness(1.06);
@@ -2582,5 +2749,140 @@ button:disabled {
   }
   100% {
     background-position: -200% 0;
+  }
+}
+
+/* —— Mobile: fix overlapping / horizontal overflow (narrow viewports) —— */
+@media (max-width: 720px) {
+  /*
+   * Commit-phase duel UI: stack vertically. Playback face-off keeps 3 columns (see `--playback-faceoff`).
+   * `.cinematic-arena-row--with-plates` is defined later and was overriding the single-column rule.
+   */
+  .cinematic-arena-row.cinematic-arena-row--with-plates:not(.cinematic-arena-row--playback-faceoff) {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    align-items: stretch;
+    min-height: unset;
+    gap: 0.85rem;
+  }
+  .cinematic-arena-row--with-plates:not(.cinematic-arena-row--playback-faceoff) .cinematic-center {
+    order: -1;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .cinematic-arena-row--with-plates:not(.cinematic-arena-row--playback-faceoff) .cinematic-side {
+    width: 100%;
+    max-width: min(320px, 100%);
+  }
+
+  /* Playback: tighter face-off so both avatars fit without stacking */
+  .cinematic-arena-row--playback-faceoff {
+    grid-template-columns: minmax(0, 1fr) minmax(72px, 1fr) minmax(0, 1fr);
+    gap: 0.2rem 0.25rem;
+    min-height: 130px;
+  }
+  .cinematic-arena-row--playback-faceoff .cinematic-round-banner--title {
+    font-size: clamp(12px, 3.2vw, 18px);
+    line-height: 1.15;
+  }
+  .cinematic-arena-row--playback-faceoff .cinematic-move-card {
+    padding: 0.28rem 0.35rem;
+    font-size: 0.58rem;
+    min-width: 0;
+  }
+  .cinematic-arena-row--playback-faceoff .cinematic-nameplate-title {
+    font-size: 0.65rem;
+  }
+  .cinematic-arena-row--playback-faceoff .cinematic-nameplate-addr {
+    font-size: 9px;
+  }
+  .pirate-faceoff-scale {
+    transform: scale(0.58);
+    width: 58px;
+    height: 74px;
+  }
+  .cinematic-arena-row--playback-faceoff .cinematic-float-above {
+    font-size: clamp(14px, 3.8vw, 18px);
+    max-width: min(88px, 26vw);
+  }
+
+  .cinematic-cards-row {
+    gap: 0.35rem;
+  }
+  .cinematic-move-card {
+    min-width: 0;
+    flex: 1 1 calc(50% - 0.35rem);
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .arena-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+  .arena-topbar > div:first-child {
+    min-width: 0;
+  }
+  .arena-topbar h2 {
+    font-size: clamp(1.25rem, 6vw, 2rem);
+  }
+  .arena-topbar-right {
+    width: 100%;
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .arena-nav-leaderboard {
+    width: 100%;
+    box-sizing: border-box;
+    text-align: center;
+  }
+  .wallet-pill {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    min-width: 0;
+  }
+  .wallet-pill-identity {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .sync-row {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+    align-items: flex-start;
+  }
+  .sync-row > span:last-child {
+    width: 100%;
+    text-align: right;
+  }
+  .zk-proof-terminal {
+    margin-top: 1rem;
+  }
+  .strategy-label {
+    font-size: clamp(13px, 3.8vw, 18px);
+    letter-spacing: 0.08em;
+    padding: 0 0.25rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .left-rail {
+    grid-template-columns: 1fr;
+  }
+  .entry-wordmark {
+    font-size: clamp(3.25rem, 17vw, 5.5rem);
+  }
+  .playback-narr-text {
+    font-size: 13px;
+    line-height: 1.35;
+    padding: 0 0.15rem;
   }
 }

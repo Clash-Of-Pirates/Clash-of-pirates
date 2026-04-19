@@ -106,7 +106,7 @@ Every battle plays out like an epic movie with:
 
 **1. Dramatic Turn Titles**
 - Round 1: "THE OPENING GAMBIT"
-- Round 2: "CLASH OF TITANS"  
+- Round 2: "Clash of pirates"  
 - Round 3: "THE FINAL RECKONING"
 
 **2. Card Reveals with Effects**

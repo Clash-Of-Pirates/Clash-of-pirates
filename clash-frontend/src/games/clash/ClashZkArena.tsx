@@ -47,7 +47,7 @@ const PROOF_TERMINAL_LINES = [
   '> FINALIZING...',
 ] as const;
 
-const ROUND_TITLES = ['Round 1 — The Opening Gambit', 'Round 2 — Clash of Titans', 'Round 3 — The Final Reckoning'] as const;
+const ROUND_TITLES = ['Round 1 — The Opening Gambit', 'Round 2 — Clash of pirates', 'Round 3 — The Final Reckoning'] as const;
 
 const FORGING_BUTTON_LINES = [
   '⚡ FORGING ZERO-KNOWLEDGE PROOF...',
@@ -881,6 +881,8 @@ export function ClashZkArena({
   const [proofBundle, setProofBundle] = useState<ClashProofResult | null>(null);
   const [proofMovesKey, setProofMovesKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** True only while `handleStartGame` is awaiting (for START DUEL button spinner). */
+  const [startingDuel, setStartingDuel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [criticalError, setCriticalError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -1052,6 +1054,7 @@ export function ClashZkArena({
       return;
     }
     setBusy(true);
+    setStartingDuel(true);
     try {
       const sid = createRandomSessionId();
       setSessionId(sid);
@@ -1078,6 +1081,7 @@ export function ClashZkArena({
       setCriticalError(e instanceof Error ? e.message : 'Failed to start game');
     } finally {
       setBusy(false);
+      setStartingDuel(false);
     }
   };
 
@@ -1462,7 +1466,14 @@ export function ClashZkArena({
               disabled={fastSigningBusy}
               onClick={() => void handleOnboardingCreateKey()}
             >
-              ⚡ CREATE SESSION KEY — ENTER THE ARENA
+              {fastSigningBusy ? (
+                <>
+                  <Loader2 className="clash-onboarding-btn-spinner" size={18} aria-hidden />
+                  Creating session key…
+                </>
+              ) : (
+                '⚡ CREATE SESSION KEY — ENTER THE ARENA'
+              )}
             </button>
             <button type="button" className="clash-onboarding-skip" onClick={handleOnboardingSkip}>
               Skip for now — I&apos;ll sign each tx manually
@@ -1497,9 +1508,16 @@ export function ClashZkArena({
             })}
           </div>
 
-          <div className={`sync-row ${gameStateSyncing ? 'sync-row--busy' : ''}`}>
+          <div
+            className={`sync-row ${gameStateSyncing || fastSigningBusy ? 'sync-row--busy' : ''}`}
+          >
             <span className="sync-row-left">
-              {gameStateSyncing ? (
+              {fastSigningBusy ? (
+                <>
+                  <Loader2 className="sync-row-spinner" size={14} aria-hidden />
+                  Creating session key…
+                </>
+              ) : gameStateSyncing ? (
                 <>
                   <Loader2 className="sync-row-spinner" size={14} aria-hidden />
                   Syncing…
@@ -1508,7 +1526,9 @@ export function ClashZkArena({
                 <>Synced {syncLabel}</>
               )}
             </span>
-            <span className={fastSigning ? 'fast-on' : 'fast-off'}>{fastSigning ? 'Fast Sign Active' : 'Passkey Sign'}</span>
+            <span className={fastSigningBusy ? 'fast-on' : fastSigning ? 'fast-on' : 'fast-off'}>
+              {fastSigningBusy ? 'Session key…' : fastSigning ? 'Fast Sign Active' : 'Passkey Sign'}
+            </span>
           </div>
         </>
       )}
@@ -1525,8 +1545,19 @@ export function ClashZkArena({
             <label>Opponent Address</label>
             <input value={opponentAddress} onChange={(e) => setOpponentAddress(e.target.value)} placeholder="C..." />
             {error && <p className="inline-error">{error}</p>}
-            <button className="btn-arena-primary" disabled={busy} onClick={() => void handleStartGame()}>
-              ⚔ START DUEL
+            <button
+              type="button"
+              className={`btn-arena-primary ${startingDuel ? 'btn-arena-primary--loading' : ''}`}
+              disabled={busy}
+              onClick={() => void handleStartGame()}
+              aria-busy={startingDuel}
+              aria-label={startingDuel ? 'Starting duel' : 'Start duel'}
+            >
+              {startingDuel ? (
+                <Loader2 className="start-duel-btn-spinner" size={22} aria-hidden />
+              ) : (
+                '⚔ START DUEL'
+              )}
             </button>
           </section>
           <section className="arena-card">
@@ -1834,10 +1865,12 @@ export function ClashZkArena({
                 <div
                   className={`cinematic-battle-canvas ${battlePlayback.ui.vignetteHit ? 'cinematic-battle-canvas--vignette' : ''}`}
                 >
-                  <div className="cinematic-arena-row cinematic-arena-row--with-plates">
+                  <div className="cinematic-arena-row cinematic-arena-row--with-plates cinematic-arena-row--playback-faceoff">
                     <div className="cinematic-side cinematic-side--left">
-                      <div className="cinematic-pirate-wrap">
-                        <PirateCharacter side="left" animation={leftAnim} accentColor="#E5133A" />
+                      <div className="cinematic-pirate-wrap cinematic-pirate-wrap--faceoff">
+                        <div className="pirate-faceoff-scale" aria-hidden>
+                          <PirateCharacter side="left" animation={leftAnim} accentColor="#E5133A" />
+                        </div>
                       </div>
                       <AnimatePresence>
                         {battlePlayback.ui.floatText && battlePlayback.ui.floatSide === 'left' && (
@@ -1951,8 +1984,10 @@ export function ClashZkArena({
 
                     </div>
                     <div className="cinematic-side cinematic-side--right">
-                      <div className="cinematic-pirate-wrap">
-                        <PirateCharacter side="right" animation={rightAnim} accentColor="#00D4FF" />
+                      <div className="cinematic-pirate-wrap cinematic-pirate-wrap--faceoff">
+                        <div className="pirate-faceoff-scale" aria-hidden>
+                          <PirateCharacter side="right" animation={rightAnim} accentColor="#00D4FF" />
+                        </div>
                       </div>
                       <AnimatePresence>
                         {battlePlayback.ui.floatText && battlePlayback.ui.floatSide === 'right' && (

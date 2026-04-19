@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Lock, Power, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
+import { AlertTriangle, Loader2, Lock, Power, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { rpc } from '@stellar/stellar-sdk';
 import { SmartAccountService } from './smartAccountService';
 import { ClashGameService } from './clashService';
@@ -81,7 +81,9 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
   const [balance, setBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(true);
   const [displayBalance, setDisplayBalance] = useState(0);
-  const [loading, setLoading] = useState(false);
+  /** Passkey wallet create / sign-in on entry gate (not fund). */
+  const [walletGateBusy, setWalletGateBusy] = useState<null | 'create' | 'connect'>(null);
+  const [fundWalletBusy, setFundWalletBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionRestored, setSessionRestored] = useState<boolean | null>(null);
   const [fastSigning, setFastSigning] = useState(false);
@@ -287,7 +289,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
   }, [userAddress, walletConnected, evaluateSessionKeyUi]);
 
   const handleCreateWallet = async () => {
-    setLoading(true);
+    setWalletGateBusy('create');
     setError(null);
     try {
       const result = await smartAccountService.createFreshWallet('Clash', `player_${Date.now()}`, true);
@@ -300,12 +302,12 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(`Failed to create wallet: ${message}`);
     } finally {
-      setLoading(false);
+      setWalletGateBusy(null);
     }
   };
 
   const handleSignInWithPasskey = async () => {
-    setLoading(true);
+    setWalletGateBusy('connect');
     setError(null);
     try {
       const result = await smartAccountService.connectWallet(true);
@@ -320,7 +322,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(`Failed to sign in: ${message}`);
     } finally {
-      setLoading(false);
+      setWalletGateBusy(null);
     }
   };
 
@@ -360,7 +362,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
 
   const handleFundWallet = async () => {
     if (!userAddress) return;
-    setLoading(true);
+    setFundWalletBusy(true);
     try {
       await smartAccountService.fundWallet(userAddress);
       setBalanceLoading(true);
@@ -368,7 +370,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Funding failed');
     } finally {
-      setLoading(false);
+      setFundWalletBusy(false);
     }
   };
 
@@ -387,7 +389,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       <div className="arena-topbar">
         <div>
           <h2>CLASH</h2>
-          <p>CLASH OF TITANS · ARENA</p>
+          <p>Clash of pirates · ARENA</p>
         </div>
         <div className="arena-topbar-right">
         <div className={`wallet-pill ${walletConnected ? 'connected' : ''}`}>
@@ -408,8 +410,20 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
               {balanceLoading ? (
                 <span className="wallet-balance-loading">-- XLM</span>
               ) : showZeroBalance ? (
-                <button type="button" className="wallet-balance-fund" onClick={() => void handleFundWallet()}>
-                  0 XLM — Fund Wallet
+                <button
+                  type="button"
+                  className="wallet-balance-fund"
+                  disabled={fundWalletBusy}
+                  onClick={() => void handleFundWallet()}
+                >
+                  {fundWalletBusy ? (
+                    <>
+                      <Loader2 className="wallet-balance-fund-spinner" size={12} aria-hidden />
+                      Funding…
+                    </>
+                  ) : (
+                    '0 XLM — Fund Wallet'
+                  )}
                 </button>
               ) : (
                 <span
@@ -439,18 +453,58 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       {!arenaReady ? (
         <PageLoading variant="viewport" title="Initializing arena" subtitle="Restoring wallet session and connecting to the network…" />
       ) : !walletConnected ? (
-        <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="entry-gate">
-          <div className="entry-wordmark">CLASH</div>
-          <p>Connect wallet to enter the arena</p>
-          <button className="btn-arena-primary gate-btn" onClick={() => void handleCreateWallet()} disabled={loading || missingClashContract || missingSmartAccountEnv}>
-            ⚡ CREATE PASSKEY WALLET
-          </button>
-          <button className="btn-arena-secondary gate-btn" onClick={() => void handleSignInWithPasskey()} disabled={loading || missingClashContract || missingSmartAccountEnv}>
-            ↩ CONNECT EXISTING
-          </button>
-          {sessionRestored === false && <small>Restore previous session unavailable in this browser session.</small>}
-          <div className="lock-overlay">
-            <Lock size={18} /> Locked until wallet is validated
+        <motion.section
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className={`entry-gate ${walletGateBusy ? 'entry-gate--busy' : ''}`}
+          aria-busy={walletGateBusy != null}
+        >
+          {walletGateBusy && (
+            <div className="entry-gate-busy-overlay" role="status" aria-live="polite">
+              <Loader2 className="entry-gate-spinner" size={28} aria-hidden />
+              <p className="entry-gate-busy-text">
+                {walletGateBusy === 'create'
+                  ? 'Creating your passkey wallet…'
+                  : 'Waiting for passkey — connecting…'}
+              </p>
+              <p className="entry-gate-busy-hint">Complete the prompt in your browser or device</p>
+            </div>
+          )}
+          <div className="entry-gate-inner">
+            <div className="entry-wordmark">CLASH</div>
+            <p>Connect wallet to enter the arena</p>
+            <button
+              className="btn-arena-primary gate-btn"
+              onClick={() => void handleCreateWallet()}
+              disabled={walletGateBusy !== null || missingClashContract || missingSmartAccountEnv}
+            >
+              {walletGateBusy === 'create' ? (
+                <>
+                  <Loader2 className="gate-btn-spinner" size={18} aria-hidden />
+                  Creating wallet…
+                </>
+              ) : (
+                '⚡ CREATE PASSKEY WALLET'
+              )}
+            </button>
+            <button
+              className="btn-arena-secondary gate-btn"
+              onClick={() => void handleSignInWithPasskey()}
+              disabled={walletGateBusy !== null || missingClashContract || missingSmartAccountEnv}
+            >
+              {walletGateBusy === 'connect' ? (
+                <>
+                  <Loader2 className="gate-btn-spinner" size={18} aria-hidden />
+                  Connecting…
+                </>
+              ) : (
+                '↩ CONNECT EXISTING'
+              )}
+            </button>
+            {sessionRestored === false && <small>Restore previous session unavailable in this browser session.</small>}
+            <div className="lock-overlay">
+              <Lock size={18} /> Locked until wallet is validated
+            </div>
           </div>
         </motion.section>
       ) : null}
@@ -499,7 +553,11 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
                   {balanceLoading ? '-- XLM' : `${formatBalanceNum(balance)} XLM`}
                 </strong>
               </div>
-              <div className={`rail-card rail-fast-sign ${hasActiveSessionKey ? 'rail-fast-sign-active' : ''}`}>
+              <div
+                className={`rail-card rail-fast-sign ${hasActiveSessionKey ? 'rail-fast-sign-active' : ''} ${
+                  fastSigningBusy ? 'rail-fast-sign--creating' : ''
+                }`}
+              >
                 <div className="rail-fast-header">
                   <span>⚡ FAST SIGN</span>
                   {hasActiveSessionKey ? (
@@ -529,7 +587,14 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
                       disabled={fastSigningBusy}
                       onClick={() => void handleStartFastSigning()}
                     >
-                      + CREATE SESSION KEY
+                      {fastSigningBusy ? (
+                        <>
+                          <Loader2 className="rail-btn-spinner" size={12} aria-hidden />
+                          Creating session…
+                        </>
+                      ) : (
+                        '+ CREATE SESSION KEY'
+                      )}
                     </button>
                   </>
                 )}

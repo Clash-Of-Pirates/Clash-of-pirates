@@ -65,6 +65,7 @@
   flex-wrap: wrap;
   max-width: min(1400px, 100%);
   margin: 0 auto;
+  min-width: 0;
 }
 
 .app-header-actions {
@@ -113,9 +114,34 @@
   position: relative;
   z-index: 2;
   width: min(1400px, 100%);
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
   padding: 1rem 1rem 4rem;
   transition: opacity 0.2s ease;
+}
+
+@media (max-width: 560px) {
+  .app-header {
+    padding: 0.55rem 0.75rem;
+  }
+  .app-title {
+    font-size: 1.35rem;
+    letter-spacing: 0.06em;
+  }
+  .app-subtitle {
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+  }
+  .layout-content {
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+  .layout-leaderboard-btn {
+    font-size: 11px;
+    padding: 0.38rem 0.55rem;
+    letter-spacing: 0.08em;
+  }
 }
 
 .layout-content--busy {
