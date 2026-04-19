@@ -1,14 +1,16 @@
 import { useState, useTransition } from 'react';
 import { config } from './config';
 import { Layout } from './components/Layout';
+import { BackgroundMusic } from './components/sound/BackgroundMusic';
 import { ClashGameArena } from './games/clash/ClashGameArena';
 import { Leaderboard } from './pages/Leaderboard';
+import { HowToPlay } from './pages/HowToPlay';
 
 const GAME_TITLE = import.meta.env.VITE_GAME_TITLE || 'Clash';
 const GAME_TAGLINE = import.meta.env.VITE_GAME_TAGLINE || 'On-chain game on Stellar';
 
 export default function App() {
-  const [view, setView] = useState<'game' | 'leaderboard'>('game');
+  const [view, setView] = useState<'game' | 'leaderboard' | 'howtoplay'>('game');
   const [leaderboardWalletAddress, setLeaderboardWalletAddress] = useState<string | null>(null);
   const [viewPending, startViewTransition] = useTransition();
   const contractId = config.contractIds['clash'] || '';
@@ -20,23 +22,55 @@ export default function App() {
     });
   };
 
+  const goHowToPlay = () => {
+    startViewTransition(() => setView('howtoplay'));
+  };
+
+  const goArenaFromHowTo = () => {
+    startViewTransition(() => setView('game'));
+  };
+
   return (
     <Layout
       title={GAME_TITLE}
       subtitle={GAME_TAGLINE}
       contentBusy={viewPending}
       headerActions={
-        <button
-          type="button"
-          className="layout-leaderboard-btn"
-          onClick={toggleLeaderboard}
-          disabled={viewPending}
-        >
-          {view === 'leaderboard' ? '← ARENA' : '🏆 LEADERBOARD'}
-        </button>
+        <>
+          <BackgroundMusic />
+          {view !== 'howtoplay' ? (
+            <button
+              type="button"
+              className="layout-leaderboard-btn"
+              onClick={goHowToPlay}
+              disabled={viewPending}
+            >
+              📜 HOW TO PLAY
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="layout-leaderboard-btn"
+              onClick={goArenaFromHowTo}
+              disabled={viewPending}
+            >
+              ← ARENA
+            </button>
+          )}
+          <button
+            type="button"
+            className="layout-leaderboard-btn"
+            onClick={toggleLeaderboard}
+            disabled={viewPending}
+          >
+            {view === 'leaderboard' ? '← ARENA' : '🏆 LEADERBOARD'}
+          </button>
+        </>
       }
     >
-      {view === 'leaderboard' ? (
+      {view === 'howtoplay' ? (
+        <HowToPlay onBack={() => startViewTransition(() => setView('game'))} />
+      ) : view === 'leaderboard' ? (
         <Leaderboard userAddress={leaderboardWalletAddress} onBack={() => setView('game')} />
       ) : !hasContract ? (
         <div className="arena-card">

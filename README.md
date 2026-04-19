@@ -40,7 +40,7 @@ Clash of Pirates is a strategic turn-based dueling game where two pirate captain
 | **Clash** (game logic) | [CAA6UZLD…N2PI](https://stellar.expert/explorer/testnet/contract/CAA6UZLDJ75NU5QQDIMWXAZRIYOUYDZX6OPREVV6D2GI2DDBIFV5N2PI) |
 | **Game Hub** (economy) | `CB4VZAT2U3UC6XFK3N23SKRF2NDCMP3QHJYMCHHFMZO7MRQO6DQ2EMYG` |
 | **UltraHonk verifier** | [CDYSIIKC…OLYN5](https://stellar.expert/explorer/testnet/contract/CDYSIIKCU222C7TKJF5XQ5TTZGULQOH4SA7TRAKAHOAGWJG6Q24OLYN5) |
-| **Points tracker** (duel points / leaderboard, optional) | [CBGYEIOW…UMD6S](https://stellar.expert/explorer/testnet/contract/CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S) |
+| **Points tracker** (duel points / leaderboard) | [CBGYEIOW…UMD6S](https://stellar.expert/explorer/testnet/contract/CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S) |
 
 Configure the Clash ID in `.env` as `VITE_CLASH_CONTRACT_ID`. For local admin-signed `record_result`, set `VITE_DEV_POINTS_TRACKER_*` vars (see `clash-frontend/src/services/pointsService.ts`).
 
