@@ -48,6 +48,12 @@ pub trait GameHub {
     fn end_game(env: Env, session_id: u32, player1_won: bool);
 }
 
+#[soroban_sdk::contractclient(name = "ClashTokenClient")]
+pub trait ClashToken {
+    fn mint(env: Env, to: Address, amount: i128);
+    fn balance(env: Env, id: Address) -> i128;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -71,6 +77,7 @@ const GAME_TTL_LEDGERS: u32 = 518_400;
 
 /// TTL for challenges (7 days in ledgers)
 const CHALLENGE_TTL_LEDGERS: u32 = 120_960;
+const CSH_REWARD_PER_WIN: i128 = 10_0000000; // 10 CSH (7 decimals)
 
 // ============================================================================
 // Errors
@@ -192,6 +199,7 @@ pub struct Game {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Challenge {
+    pub challenge_id: u32,
     pub challenger: Address,
     pub challenged: Address,
     pub points_wagered: i128,
@@ -272,6 +280,7 @@ pub enum DataKey {
     Match(u32),                  // Match ID -> PvPMatch
     MatchCounter,                // Counter for match IDs
     PlayerMatches(Address),      // Address -> Vec<match_id>
+    TokenContractAddress,
 }
 
 // ============================================================================
@@ -427,6 +436,7 @@ impl ClashContract {
         // Create challenge (expires in 7 days)
         let current_time = env.ledger().timestamp();
         let challenge = Challenge {
+            challenge_id,
             challenger: challenger.clone(),
             challenged: challenged.clone(),
             points_wagered,
@@ -492,8 +502,9 @@ impl ClashContract {
         challenge.session_id = Some(session_id);
         env.storage().temporary().set(&challenge_key, &challenge);
 
-        // Start game with wagered points
-        Self::start_game(
+        // Start game with wagered points. Challenger auth was already provided when
+        // sending challenge, so acceptance should not require challenger to sign again.
+        Self::start_game_after_auth(
             env,
             session_id,
             challenge.challenger.clone(),
@@ -640,6 +651,28 @@ impl ClashContract {
         //     session_id.into_val(&env),
         //     player2_points.into_val(&env),
         // ]);
+
+        Self::start_game_after_auth(
+            env,
+            session_id,
+            player1,
+            player2,
+            player1_points,
+            player2_points,
+        )
+    }
+
+    fn start_game_after_auth(
+        env: Env,
+        session_id: u32,
+        player1: Address,
+        player2: Address,
+        player1_points: i128,
+        player2_points: i128,
+    ) -> Result<(), Error> {
+        if player1 == player2 {
+            panic!("Cannot play against yourself");
+        }
 
         // Get GameHub address
         let game_hub_addr: Address = env
@@ -871,8 +904,10 @@ pub fn reveal_moves(
             // to check if both players have same points remaining
             game_hub.end_game(&session_id, &false);
         } else {
-            let player1_won = battle_result.winner.as_ref().unwrap() == &game.player1;
+            let winner = battle_result.winner.as_ref().unwrap();
+            let player1_won = winner == &game.player1;
             game_hub.end_game(&session_id, &player1_won);
+            Self::mint_csh_reward(&env, winner.clone());
         }
 
         Ok(battle_result)
@@ -1319,10 +1354,42 @@ pub fn reveal_moves(
             .set(&DataKey::GameHubAddress, &new_hub);
     }
 
+    pub fn set_token_contract(env: Env, token_contract: Address) {
+        let admin: Address = Self::get_admin(env.clone());
+        admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::TokenContractAddress, &token_contract);
+    }
+
+    pub fn get_token_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::TokenContractAddress)
+    }
+
+    pub fn get_csh_balance(env: Env, player: Address) -> i128 {
+        let Some(token_addr) = Self::get_token_contract(env.clone()) else {
+            return 0;
+        };
+        let token = ClashTokenClient::new(&env, &token_addr);
+        token.balance(&player)
+    }
+
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         let admin: Address = Self::get_admin(env.clone());
         admin.require_auth();
         env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    fn mint_csh_reward(env: &Env, winner: Address) {
+        let Some(token_addr) = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::TokenContractAddress)
+        else {
+            return;
+        };
+        let token = ClashTokenClient::new(env, &token_addr);
+        token.mint(&winner, &CSH_REWARD_PER_WIN);
     }
 }
 
