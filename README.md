@@ -25,7 +25,6 @@ npm run dev
 
 Set at least `VITE_CLASH_CONTRACT_ID` (and smart-account env vars if you use the passkey flow). Optional leaderboard writes need `VITE_DEV_POINTS_TRACKER_*` — see `clash-frontend/src/services/pointsService.ts`.
 
-
 ---
 
 ## For Players
