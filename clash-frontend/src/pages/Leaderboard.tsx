@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { fetchLeaderboardData } from '@/services/pointsService';
+import { ClashGameService } from '@/games/clash/clashService';
+import { getContractId } from '@/utils/constants';
 import { PageLoading } from '@/components/PageLoading';
 import '@/games/clash/styles.css';
 
@@ -18,12 +20,17 @@ type Props = {
 
 export function Leaderboard({ userAddress, onBack }: Props) {
   const [rows, setRows] = useState<Array<{ address: string; points: number }>>([]);
+  const [usernames, setUsernames] = useState<Record<string, string | null>>({});
   const [status, setStatus] = useState<LoadStatus>('loading');
   const [refreshing, setRefreshing] = useState(false);
   const [lastFetch, setLastFetch] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const clashServiceRef = useRef<ClashGameService | null>(null);
+  if (!clashServiceRef.current) {
+    clashServiceRef.current = new ClashGameService(getContractId('clash'));
+  }
 
   const fetchLeaderboard = useCallback(async (options?: { background?: boolean }) => {
     const background = options?.background ?? false;
@@ -61,6 +68,32 @@ export function Leaderboard({ userAddress, onBack }: Props) {
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const unresolved = rows
+      .map((r) => r.address)
+      .filter((address) => usernames[address] === undefined);
+    if (unresolved.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const results = await Promise.all(
+        unresolved.map(async (address) => {
+          try {
+            const name = await clashServiceRef.current!.getUsername(address);
+            return [address, name] as const;
+          } catch {
+            return [address, null] as const;
+          }
+        })
+      );
+      if (cancelled) return;
+      setUsernames((prev) => ({ ...prev, ...Object.fromEntries(results) }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, usernames]);
 
   const updatedLabel = useMemo(() => {
     if (!lastFetch) return '—';
@@ -135,6 +168,7 @@ export function Leaderboard({ userAddress, onBack }: Props) {
           <div className="leaderboard-you-row">
             <span className="leaderboard-you-rank">#{myRank.rank}</span>
             <span className="leaderboard-you-addr mono">
+              {usernames[myRank.row.address] ? `@${usernames[myRank.row.address]} · ` : ''}
               {truncateAddr(myRank.row.address)} (YOU)
             </span>
             <span className="leaderboard-you-pts">{myRank.row.points.toLocaleString()} pts</span>
@@ -187,6 +221,7 @@ export function Leaderboard({ userAddress, onBack }: Props) {
                   <tr key={r.address} className={rowClass}>
                     <td className={`leaderboard-rank ${rankClass}`}>{rank}</td>
                     <td className="leaderboard-captain mono">
+                      {usernames[r.address] && <div className="leaderboard-username">@{usernames[r.address]}</div>}
                       <button type="button" className="leaderboard-addr-btn" onClick={() => copyAddr(r.address)} title="Copy address">
                         {truncateAddr(r.address)}
                         {isYou && <span className="leaderboard-you-tag"> (YOU)</span>}
