@@ -9,6 +9,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 CIRCUIT_DIR="$ROOT/duel_commit_circuit"
 CONTRACT_DIR="$ROOT/contracts/rs-soroban-ultrahonk"
 CLASH_CONTRACT_DIR="$ROOT/contracts/clash"
+CLASH_TOKEN_CONTRACT_DIR="$ROOT/contracts/clash_token"
 MOCK_HUB_CONTRACT_DIR="$ROOT/contracts/mock-game-hub"
 TARGET_DIR="$ROOT/target"
 
@@ -36,6 +37,7 @@ echo -e "${BLUE}==> 0) Clean artifacts${NC}"
 rm -rf "$CIRCUIT_DIR/target"
 rm -rf "$CONTRACT_DIR/target"
 rm -rf "$CLASH_CONTRACT_DIR/target" 2>/dev/null || true
+rm -rf "$CLASH_TOKEN_CONTRACT_DIR/target" 2>/dev/null || true
 
 # ── Step 1: Navigate to circuit directory ────────────────────────────────────
 echo ""
@@ -314,6 +316,41 @@ CLASH_CID="$(
 
 echo -e "${GREEN}✓ Clash contract deployed: $CLASH_CID${NC}"
 
+echo ""
+echo -e "${BLUE}==> 12.5) Deploy Clash Token contract${NC}"
+cd "$CLASH_TOKEN_CONTRACT_DIR"
+stellar contract build
+
+CLASH_TOKEN_CID="$(
+  stellar contract deploy \
+    --wasm $TARGET_DIR/wasm32v1-none/release/clash_token.wasm \
+    --network testnet \
+    --source-account kaysT \
+  | tail -n1
+)"
+echo -e "${GREEN}✓ Clash token contract deployed: $CLASH_TOKEN_CID${NC}"
+
+echo ""
+echo -e "${BLUE}==> 12.6) Initialize Clash Token + wire into Clash${NC}"
+stellar contract invoke \
+  --id "$CLASH_TOKEN_CID" \
+  --network testnet \
+  --source-account kaysT \
+  --send yes \
+  -- \
+  initialize \
+  --admin "$CLASH_CID"
+
+stellar contract invoke \
+  --id "$CLASH_CID" \
+  --network testnet \
+  --source-account kaysT \
+  --send yes \
+  -- \
+  set_token_contract \
+  --token_contract "$CLASH_TOKEN_CID"
+echo -e "${GREEN}✓ Clash token initialized and linked${NC}"
+
 # Initialize Clash contract
 echo ""
 echo -e "${BLUE}==> 13) Initialize Clash contract${NC}"
@@ -492,6 +529,27 @@ echo ""
 echo "Battle Result:"
 echo "$BATTLE_RESULT"
 
+echo ""
+echo -e "${BLUE}==> 20.5) Check winner CSH balances${NC}"
+P1_CSH="$(stellar contract invoke \
+  --id "$CLASH_CID" \
+  --network testnet \
+  --source-account kaysT \
+  -- \
+  get_csh_balance \
+  --player "$PLAYER1_ADDR"
+)"
+P2_CSH="$(stellar contract invoke \
+  --id "$CLASH_CID" \
+  --network testnet \
+  --source-account kaysT \
+  -- \
+  get_csh_balance \
+  --player "$PLAYER2_ADDR"
+)"
+echo "    Player 1 CSH: $P1_CSH"
+echo "    Player 2 CSH: $P2_CSH"
+
 # Step 7: Get game playback
 echo ""
 echo -e "${BLUE}==> 21) Get detailed game playback${NC}"
@@ -522,6 +580,7 @@ echo ""
 echo "📊 Summary:"
 echo "  • UltraHonk Verifier: $VERIFIER_CID"
 echo "  • Clash Contract:     $CLASH_CID"
+echo "  • Clash Token:        $CLASH_TOKEN_CID"
 echo "  • Session ID:         $SESSION_ID"
 echo "  • Player 1:           $PLAYER1_ADDR"
 echo "  • Player 2:           $PLAYER2_ADDR"
@@ -533,3 +592,75 @@ echo "  3. Revealed their moves with proof verification"
 echo "  4. Battle was resolved automatically"
 echo ""
 echo "🎮 Game is ready for production!"
+
+echo ""
+echo -e "${BLUE}==> 22) Generate TypeScript bindings + copy to frontend${NC}"
+mkdir -p "$ROOT/bindings/clash" "$ROOT/bindings/clash_token"
+stellar contract bindings typescript \
+  --contract-id "$CLASH_CID" \
+  --output-dir "$ROOT/bindings/clash" \
+  --network testnet \
+  --overwrite
+stellar contract bindings typescript \
+  --contract-id "$CLASH_TOKEN_CID" \
+  --output-dir "$ROOT/bindings/clash_token" \
+  --network testnet \
+  --overwrite
+
+cp "$ROOT/bindings/clash/src/index.ts" "$ROOT/clash-frontend/src/games/clash/bindings.ts"
+mkdir -p "$ROOT/clash-frontend/src/contracts/clash-token/src"
+cp "$ROOT/bindings/clash_token/src/index.ts" "$ROOT/clash-frontend/src/contracts/clash-token/src/index.ts"
+echo -e "${GREEN}✓ Bindings generated and copied into frontend${NC}"
+
+echo ""
+echo -e "${BLUE}==> 23) Update .env and deployment.json with latest contract IDs${NC}"
+python3 - "$ROOT" "$CLASH_CID" "$CLASH_TOKEN_CID" "$MOCK_HUB_CID" <<'PYUPDATE'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+clash_id = sys.argv[2].strip()
+token_id = sys.argv[3].strip()
+hub_id = sys.argv[4].strip()
+
+env_path = root / ".env"
+if env_path.exists():
+    lines = env_path.read_text().splitlines()
+else:
+    lines = []
+
+def upsert(lines, key, value):
+    prefix = f"{key}="
+    for i, line in enumerate(lines):
+        if line.startswith(prefix):
+            lines[i] = f"{key}={value}"
+            return
+    lines.append(f"{key}={value}")
+
+upsert(lines, "VITE_CLASH_CONTRACT_ID", clash_id)
+upsert(lines, "VITE_CLASH_TOKEN_CONTRACT_ID", token_id)
+upsert(lines, "VITE_MOCK_GAME_HUB_CONTRACT_ID", hub_id)
+env_path.write_text("\n".join(lines).rstrip() + "\n")
+
+deployment_path = root / "deployment.json"
+deployment = {}
+if deployment_path.exists():
+    try:
+        deployment = json.loads(deployment_path.read_text())
+    except Exception:
+        deployment = {}
+
+contracts = deployment.get("contracts") or {}
+contracts["clash"] = clash_id
+contracts["clash-token"] = token_id
+contracts["mock-game-hub"] = hub_id
+deployment["contracts"] = contracts
+deployment["mockGameHubId"] = hub_id
+deployment["network"] = "testnet"
+deployment["rpcUrl"] = deployment.get("rpcUrl") or "https://soroban-testnet.stellar.org"
+deployment["networkPassphrase"] = deployment.get("networkPassphrase") or "Test SDF Network ; September 2015"
+deployment_path.write_text(json.dumps(deployment, indent=2) + "\n")
+print("Updated .env and deployment.json")
+PYUPDATE
+echo -e "${GREEN}✓ Contract IDs updated in .env + deployment.json${NC}"
