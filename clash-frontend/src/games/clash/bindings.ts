@@ -34,7 +34,7 @@ if (typeof window !== 'undefined') {
 export const networks = {
   testnet: {
     networkPassphrase: "Test SDF Network ; September 2015",
-    contractId: "CAA6UZLDJ75NU5QQDIMWXAZRIYOUYDZX6OPREVV6D2GI2DDBIFV5N2PI",
+    contractId: "CCRG66MIX7ATFB4T3VJZ4TJLWKNRXKBX6HZWPUL2U2UQLUO5564F5IL5",
   }
 } as const
 
@@ -86,7 +86,7 @@ export enum Attack {
   Lightning = 2,
 }
 
-export type DataKey = {tag: "Game", values: readonly [u32]} | {tag: "GameHubAddress", values: void} | {tag: "Admin", values: void} | {tag: "Ultrahonkverifier", values: void} | {tag: "Username", values: readonly [string]} | {tag: "AddressByUsername", values: readonly [string]} | {tag: "Challenge", values: readonly [u32]} | {tag: "ChallengeCounter", values: void} | {tag: "PlayerChallenges", values: readonly [string]} | {tag: "Match", values: readonly [u32]} | {tag: "MatchCounter", values: void} | {tag: "PlayerMatches", values: readonly [string]};
+export type DataKey = {tag: "Game", values: readonly [u32]} | {tag: "GameHubAddress", values: void} | {tag: "Admin", values: void} | {tag: "Ultrahonkverifier", values: void} | {tag: "Username", values: readonly [string]} | {tag: "AddressByUsername", values: readonly [string]} | {tag: "Challenge", values: readonly [u32]} | {tag: "ChallengeCounter", values: void} | {tag: "PlayerChallenges", values: readonly [string]} | {tag: "Match", values: readonly [u32]} | {tag: "MatchCounter", values: void} | {tag: "PlayerMatches", values: readonly [string]} | {tag: "TokenContractAddress", values: void};
 
 export enum Defense {
   Block = 0,
@@ -109,6 +109,7 @@ export interface PvPMatch {
 
 
 export interface Challenge {
+  challenge_id: u32;
   challenged: string;
   challenger: string;
   created_at: u64;
@@ -1160,6 +1161,26 @@ export interface Client {
   }) => Promise<AssembledTransaction<Result<u32>>>
 
   /**
+   * Construct and simulate a get_csh_balance transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  get_csh_balance: ({player}: {player: string}, options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<i128>>
+
+  /**
    * Construct and simulate a accept_challenge transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Accept a challenge and start a game
    */
@@ -1260,6 +1281,46 @@ export interface Client {
      */
     simulate?: boolean;
   }) => Promise<AssembledTransaction<Array<u32>>>
+
+  /**
+   * Construct and simulate a get_token_contract transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  get_token_contract: (options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<Option<string>>>
+
+  /**
+   * Construct and simulate a set_token_contract transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   */
+  set_token_contract: ({token_contract}: {token_contract: string}, options?: {
+    /**
+     * The fee to pay for the transaction. Default: BASE_FEE
+     */
+    fee?: number;
+
+    /**
+     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
+     */
+    timeoutInSeconds?: number;
+
+    /**
+     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
+     */
+    simulate?: boolean;
+  }) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a remove_context_rule transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -1407,10 +1468,10 @@ export class Client extends ContractClient {
         "AAAAAQAAAAAAAAAAAAAABE1vdmUAAAACAAAAAAAAAAZhdHRhY2sAAAAAB9AAAAAGQXR0YWNrAAAAAAAAAAAAB2RlZmVuc2UAAAAH0AAAAAdEZWZlbnNlAA==",
         "AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAAEwAAAAAAAAAMR2FtZU5vdEZvdW5kAAAAAQAAAAAAAAAJTm90UGxheWVyAAAAAAAAAgAAAAAAAAAQQWxyZWFkeUNvbW1pdHRlZAAAAAMAAAAAAAAAF0JvdGhQbGF5ZXJzTm90Q29tbWl0dGVkAAAAAAQAAAAAAAAAEEdhbWVBbHJlYWR5RW5kZWQAAAAFAAAAAAAAAAxJbnZhbGlkUHJvb2YAAAAGAAAAAAAAABdQcm9vZlZlcmlmaWNhdGlvbkZhaWxlZAAAAAAHAAAAAAAAABNJbnZhbGlkTW92ZVNlcXVlbmNlAAAAAAgAAAAAAAAAFFVzZXJuYW1lQWxyZWFkeVRha2VuAAAACQAAAAAAAAAPVXNlcm5hbWVUb29Mb25nAAAAAAoAAAAAAAAAEUNoYWxsZW5nZU5vdEZvdW5kAAAAAAAACwAAAAAAAAAQQ2hhbGxlbmdlRXhwaXJlZAAAAAwAAAAAAAAAE0Nhbm5vdENoYWxsZW5nZVNlbGYAAAAADQAAAAAAAAAQVXNlcm5hbWVUb29TaG9ydAAAAA4AAAAAAAAAFUludmFsaWRVc2VybmFtZUZvcm1hdAAAAAAAAA8AAAAAAAAAEFVzZXJuYW1lUmVzZXJ2ZWQAAAAQAAAAAAAAAA9BbHJlYWR5UmV2ZWFsZWQAAAAAEQAAAAAAAAASQ29tbWl0bWVudE1pc21hdGNoAAAAAAASAAAAAAAAABNJbnZhbGlkUHVibGljSW5wdXRzAAAAABM=",
         "AAAAAwAAAAAAAAAAAAAABkF0dGFjawAAAAAAAwAAAAAAAAAFU2xhc2gAAAAAAAAAAAAAAAAAAAhGaXJlYmFsbAAAAAEAAAAAAAAACUxpZ2h0bmluZwAAAAAAAAI=",
-        "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAADAAAAAEAAAAAAAAABEdhbWUAAAABAAAABAAAAAAAAAAAAAAADkdhbWVIdWJBZGRyZXNzAAAAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAEVVsdHJhaG9ua3ZlcmlmaWVyAAAAAAAAAQAAAAAAAAAIVXNlcm5hbWUAAAABAAAAEwAAAAEAAAAAAAAAEUFkZHJlc3NCeVVzZXJuYW1lAAAAAAAAAQAAABAAAAABAAAAAAAAAAlDaGFsbGVuZ2UAAAAAAAABAAAABAAAAAAAAAAAAAAAEENoYWxsZW5nZUNvdW50ZXIAAAABAAAAAAAAABBQbGF5ZXJDaGFsbGVuZ2VzAAAAAQAAABMAAAABAAAAAAAAAAVNYXRjaAAAAAAAAAEAAAAEAAAAAAAAAAAAAAAMTWF0Y2hDb3VudGVyAAAAAQAAAAAAAAANUGxheWVyTWF0Y2hlcwAAAAAAAAEAAAAT",
+        "AAAAAgAAAAAAAAAAAAAAB0RhdGFLZXkAAAAADQAAAAEAAAAAAAAABEdhbWUAAAABAAAABAAAAAAAAAAAAAAADkdhbWVIdWJBZGRyZXNzAAAAAAAAAAAAAAAAAAVBZG1pbgAAAAAAAAAAAAAAAAAAEVVsdHJhaG9ua3ZlcmlmaWVyAAAAAAAAAQAAAAAAAAAIVXNlcm5hbWUAAAABAAAAEwAAAAEAAAAAAAAAEUFkZHJlc3NCeVVzZXJuYW1lAAAAAAAAAQAAABAAAAABAAAAAAAAAAlDaGFsbGVuZ2UAAAAAAAABAAAABAAAAAAAAAAAAAAAEENoYWxsZW5nZUNvdW50ZXIAAAABAAAAAAAAABBQbGF5ZXJDaGFsbGVuZ2VzAAAAAQAAABMAAAABAAAAAAAAAAVNYXRjaAAAAAAAAAEAAAAEAAAAAAAAAAAAAAAMTWF0Y2hDb3VudGVyAAAAAQAAAAAAAAANUGxheWVyTWF0Y2hlcwAAAAAAAAEAAAATAAAAAAAAAAAAAAAUVG9rZW5Db250cmFjdEFkZHJlc3M=",
         "AAAAAwAAAAAAAAAAAAAAB0RlZmVuc2UAAAAAAwAAAAAAAAAFQmxvY2sAAAAAAAAAAAAAAAAAAAVEb2RnZQAAAAAAAAEAAAAAAAAAB0NvdW50ZXIAAAAAAg==",
         "AAAAAQAAAAAAAAAAAAAACFB2UE1hdGNoAAAACQAAAAAAAAAMY3VycmVudF90dXJuAAAABAAAAAAAAAALbGFzdF9hY3Rpb24AAAAD6AAAB9AAAAAETW92ZQAAAAAAAAAIbWF0Y2hfaWQAAAAEAAAAAAAAAAdwbGF5ZXIxAAAAABMAAAAAAAAACnBsYXllcjFfaHAAAAAAAAUAAAAAAAAAB3BsYXllcjIAAAAAEwAAAAAAAAAKcGxheWVyMl9ocAAAAAAABQAAAAAAAAAFc3RhdGUAAAAAAAfQAAAACk1hdGNoU3RhdGUAAAAAAAAAAAAGd2lubmVyAAAAAAPoAAAAEw==",
-        "AAAAAQAAAAAAAAAAAAAACUNoYWxsZW5nZQAAAAAAAAgAAAAAAAAACmNoYWxsZW5nZWQAAAAAABMAAAAAAAAACmNoYWxsZW5nZXIAAAAAABMAAAAAAAAACmNyZWF0ZWRfYXQAAAAAAAYAAAAAAAAACmV4cGlyZXNfYXQAAAAAAAYAAAAAAAAAC2lzX2FjY2VwdGVkAAAAAAEAAAAAAAAADGlzX2NvbXBsZXRlZAAAAAEAAAAAAAAADnBvaW50c193YWdlcmVkAAAAAAALAAAAAAAAAApzZXNzaW9uX2lkAAAAAAPoAAAABA==",
+        "AAAAAQAAAAAAAAAAAAAACUNoYWxsZW5nZQAAAAAAAAkAAAAAAAAADGNoYWxsZW5nZV9pZAAAAAQAAAAAAAAACmNoYWxsZW5nZWQAAAAAABMAAAAAAAAACmNoYWxsZW5nZXIAAAAAABMAAAAAAAAACmNyZWF0ZWRfYXQAAAAAAAYAAAAAAAAACmV4cGlyZXNfYXQAAAAAAAYAAAAAAAAAC2lzX2FjY2VwdGVkAAAAAAEAAAAAAAAADGlzX2NvbXBsZXRlZAAAAAEAAAAAAAAADnBvaW50c193YWdlcmVkAAAAAAALAAAAAAAAAApzZXNzaW9uX2lkAAAAAAPoAAAABA==",
         "AAAABAAAAAAAAAAAAAAACkNsYXNoRXJyb3IAAAAAAAMAAAAAAAAAEENvbW1pdG1lbnRFeGlzdHMAAAABAAAAAAAAAA1OdWxsaWZpZXJVc2VkAAAAAAAAAgAAAAAAAAASVmVyaWZpY2F0aW9uRmFpbGVkAAAAAAAD",
         "AAAAAwAAAAAAAAAAAAAACk1hdGNoU3RhdGUAAAAAAAQAAAAAAAAAB0NyZWF0ZWQAAAAAAAAAAAAAAAAIQWNjZXB0ZWQAAAABAAAAAAAAAAZBY3RpdmUAAAAAAAIAAAAAAAAACEZpbmlzaGVkAAAAAw==",
         "AAAAAQAAAAAAAAAAAAAAClR1cm5SZXN1bHQAAAAAAAcAAAAAAAAAFHBsYXllcjFfZGFtYWdlX2RlYWx0AAAABQAAAAAAAAAacGxheWVyMV9kZWZlbnNlX3N1Y2Nlc3NmdWwAAAAAAAEAAAAAAAAAFHBsYXllcjFfaHBfcmVtYWluaW5nAAAABQAAAAAAAAAUcGxheWVyMl9kYW1hZ2VfZGVhbHQAAAAFAAAAAAAAABpwbGF5ZXIyX2RlZmVuc2Vfc3VjY2Vzc2Z1bAAAAAAAAQAAAAAAAAAUcGxheWVyMl9ocF9yZW1haW5pbmcAAAAFAAAAAAAAAAR0dXJuAAAABA==",
@@ -1444,11 +1505,14 @@ export class Client extends ContractClient {
         "AAAAAAAAAAAAAAANcmVtb3ZlX3NpZ25lcgAAAAAAAAIAAAAAAAAAD2NvbnRleHRfcnVsZV9pZAAAAAAEAAAAAAAAAAlzaWduZXJfaWQAAAAAAAAEAAAAAA==",
         "AAAAAAAAAD9SZXNvbHZlIHRoZSBiYXR0bGUgYWZ0ZXIgYm90aCBwbGF5ZXJzIGhhdmUgcmV2ZWFsZWQgdGhlaXIgbW92ZXMAAAAADnJlc29sdmVfYmF0dGxlAAAAAAABAAAAAAAAAApzZXNzaW9uX2lkAAAAAAAEAAAAAQAAA+kAAAfQAAAADEJhdHRsZVJlc3VsdAAAAAM=",
         "AAAAAAAAACJTZW5kIGEgY2hhbGxlbmdlIHRvIGFub3RoZXIgcGxheWVyAAAAAAAOc2VuZF9jaGFsbGVuZ2UAAAAAAAMAAAAAAAAACmNoYWxsZW5nZXIAAAAAABMAAAAAAAAACmNoYWxsZW5nZWQAAAAAABMAAAAAAAAADnBvaW50c193YWdlcmVkAAAAAAALAAAAAQAAA+kAAAAEAAAAAw==",
+        "AAAAAAAAAAAAAAAPZ2V0X2NzaF9iYWxhbmNlAAAAAAEAAAAAAAAABnBsYXllcgAAAAAAEwAAAAEAAAAL",
         "AAAAAAAAACNBY2NlcHQgYSBjaGFsbGVuZ2UgYW5kIHN0YXJ0IGEgZ2FtZQAAAAAQYWNjZXB0X2NoYWxsZW5nZQAAAAMAAAAAAAAADGNoYWxsZW5nZV9pZAAAAAQAAAAAAAAACmNoYWxsZW5nZWQAAAAAABMAAAAAAAAACnNlc3Npb25faWQAAAAAAAQAAAABAAAD6QAAAAIAAAAD",
         "AAAAAAAAAAAAAAAQYWRkX2NvbnRleHRfcnVsZQAAAAUAAAAAAAAADGNvbnRleHRfdHlwZQAAB9AAAAAPQ29udGV4dFJ1bGVUeXBlAAAAAAAAAAAEbmFtZQAAABAAAAAAAAAAC3ZhbGlkX3VudGlsAAAAA+gAAAAEAAAAAAAAAAdzaWduZXJzAAAAA+oAAAfQAAAABlNpZ25lcgAAAAAAAAAAAAhwb2xpY2llcwAAA+wAAAATAAAAAAAAAAEAAAfQAAAAC0NvbnRleHRSdWxlAA==",
         "AAAAAAAAAAAAAAAQZ2V0X2NvbnRleHRfcnVsZQAAAAEAAAAAAAAAD2NvbnRleHRfcnVsZV9pZAAAAAAEAAAAAQAAB9AAAAALQ29udGV4dFJ1bGUA",
         "AAAAAAAAADVHZXQgZGV0YWlsZWQgZ2FtZSBwbGF5YmFjayB3aXRoIGFsbCBtb3ZlcyBhbmQgcmVzdWx0cwAAAAAAABFnZXRfZ2FtZV9wbGF5YmFjawAAAAAAAAEAAAAAAAAACnNlc3Npb25faWQAAAAAAAQAAAABAAAD6QAAB9AAAAAMR2FtZVBsYXliYWNrAAAAAw==",
         "AAAAAAAAAAAAAAASZ2V0X3BsYXllcl9tYXRjaGVzAAAAAAABAAAAAAAAAAZwbGF5ZXIAAAAAABMAAAABAAAD6gAAAAQ=",
+        "AAAAAAAAAAAAAAASZ2V0X3Rva2VuX2NvbnRyYWN0AAAAAAAAAAAAAQAAA+gAAAAT",
+        "AAAAAAAAAAAAAAASc2V0X3Rva2VuX2NvbnRyYWN0AAAAAAABAAAAAAAAAA50b2tlbl9jb250cmFjdAAAAAAAEwAAAAA=",
         "AAAAAAAAAAAAAAATcmVtb3ZlX2NvbnRleHRfcnVsZQAAAAABAAAAAAAAAA9jb250ZXh0X3J1bGVfaWQAAAAABAAAAAA=",
         "AAAAAAAAADJHZXQgYWxsIGNoYWxsZW5nZXMgZm9yIGEgcGxheWVyIChzb3J0ZWQgYnkgc3RhdHVzKQAAAAAAFWdldF9wbGF5ZXJfY2hhbGxlbmdlcwAAAAAAAAEAAAAAAAAABnBsYXllcgAAAAAAEwAAAAEAAAPtAAAAAwAAA+oAAAfQAAAACUNoYWxsZW5nZQAAAAAAA+oAAAfQAAAACUNoYWxsZW5nZQAAAAAAA+oAAAfQAAAACUNoYWxsZW5nZQAAAA==",
         "AAAAAAAAABpHZXQgYWRkcmVzcyBmb3IgYSB1c2VybmFtZQAAAAAAF2dldF9hZGRyZXNzX2J5X3VzZXJuYW1lAAAAAAEAAAAAAAAACHVzZXJuYW1lAAAAEAAAAAEAAAPoAAAAEw==",
@@ -1528,11 +1592,14 @@ export class Client extends ContractClient {
         remove_signer: this.txFromJSON<null>,
         resolve_battle: this.txFromJSON<Result<BattleResult>>,
         send_challenge: this.txFromJSON<Result<u32>>,
+        get_csh_balance: this.txFromJSON<i128>,
         accept_challenge: this.txFromJSON<Result<void>>,
         add_context_rule: this.txFromJSON<ContextRule>,
         get_context_rule: this.txFromJSON<ContextRule>,
         get_game_playback: this.txFromJSON<Result<GamePlayback>>,
         get_player_matches: this.txFromJSON<Array<u32>>,
+        get_token_contract: this.txFromJSON<Option<string>>,
+        set_token_contract: this.txFromJSON<null>,
         remove_context_rule: this.txFromJSON<null>,
         get_player_challenges: this.txFromJSON<readonly [Array<Challenge>, Array<Challenge>, Array<Challenge>]>,
         get_address_by_username: this.txFromJSON<Option<string>>,
