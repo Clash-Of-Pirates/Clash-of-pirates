@@ -181,6 +181,21 @@ export class ClashGameService {
     }
   }
 
+  async getCshBalance(player: string): Promise<bigint> {
+    try {
+      const tx = await (this.baseClient as any).get_csh_balance({ player });
+      const result = await tx.simulate();
+      const raw = result?.result;
+      if (typeof raw === 'bigint') return raw;
+      if (typeof raw === 'number') return BigInt(raw);
+      if (typeof raw === 'string') return BigInt(raw);
+      return 0n;
+    } catch (err) {
+      console.log('[getCshBalance] Error querying CSH balance:', err);
+      return 0n;
+    }
+  }
+
   // ========================================================================
   // Challenge System
   // ========================================================================
@@ -286,6 +301,79 @@ export class ClashGameService {
         completed: [],
         expired: [],
       };
+    }
+  }
+
+  async setUsernameWithSmartAccount(
+    caller: string,
+    username: string,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      const tx = await this.baseClient.set_username({ caller, username }, DEFAULT_METHOD_OPTIONS);
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'set_username',
+        clashContractId: this.contractId,
+      });
+      assertSmartAccountSubmitResult(result, 'set_username');
+    } catch (error) {
+      console.error('❌ set_username failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'set_username');
+    }
+  }
+
+  async sendChallengeWithSmartAccount(
+    challenger: string,
+    challenged: string,
+    pointsWagered: bigint,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      const tx = await this.baseClient.send_challenge(
+        {
+          challenger,
+          challenged,
+          points_wagered: pointsWagered,
+        },
+        DEFAULT_METHOD_OPTIONS
+      );
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'send_challenge',
+        clashContractId: this.contractId,
+      });
+      assertSmartAccountSubmitResult(result, 'send_challenge');
+    } catch (error) {
+      console.error('❌ send_challenge failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'send_challenge');
+    }
+  }
+
+  async acceptChallengeWithSmartAccount(
+    challengeId: number,
+    challenged: string,
+    sessionId: number,
+    smartAccountService: SmartAccountService
+  ): Promise<void> {
+    try {
+      await smartAccountService.ensureSigningReady();
+      const tx = await this.baseClient.accept_challenge(
+        {
+          challenge_id: challengeId,
+          challenged,
+          session_id: sessionId,
+        },
+        DEFAULT_METHOD_OPTIONS
+      );
+      const result = await smartAccountService.signAndSubmit(tx, {
+        label: 'accept_challenge',
+        clashContractId: this.contractId,
+      });
+      assertSmartAccountSubmitResult(result, 'accept_challenge');
+    } catch (error) {
+      console.error('❌ accept_challenge failed:', error);
+      rethrowWithSmartAccountWasmHint(error, 'accept_challenge');
     }
   }
 
