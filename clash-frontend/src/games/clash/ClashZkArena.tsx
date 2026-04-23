@@ -5,7 +5,7 @@ import { Buffer } from 'buffer';
 import { NoirService, type ClashProofResult } from '@/utils/NoirService';
 import type { ClashGameService } from './clashService';
 import type { SmartAccountService } from './smartAccountService';
-import type { DetailedTurnResult, Game, GamePlayback, Move } from './bindings';
+import type { Challenge, DetailedTurnResult, Game, GamePlayback, Move } from './bindings';
 import { Attack, Defense } from './bindings';
 import type { SelectedMove } from '@/components/Clashgamecomponents';
 import { createEmptyMoves } from '@/components/Clashgamecomponents';
@@ -873,7 +873,15 @@ export function ClashZkArena({
   const [sessionId, setSessionId] = useState(() => createRandomSessionId());
   const [gameState, setGameState] = useState<Game | null>(null);
   const [gamePlayback, setGamePlayback] = useState<GamePlayback | null>(null);
-  const [opponentAddress, setOpponentAddress] = useState('');
+  const [opponentUsername, setOpponentUsername] = useState('');
+  const [allChallenges, setAllChallenges] = useState<{
+    active: Challenge[];
+    completed: Challenge[];
+    expired: Challenge[];
+  }>({ active: [], completed: [], expired: [] });
+  const [challengeUsernames, setChallengeUsernames] = useState<Record<string, string | null>>({});
+  const [challengeOutcomes, setChallengeOutcomes] = useState<Record<number, 'win' | 'loss' | 'draw' | 'unknown'>>({});
+  const [challengesLoading, setChallengesLoading] = useState(false);
   const [pointsStr, setPointsStr] = useState(DEFAULT_POINTS);
   const [loadSessionId, setLoadSessionId] = useState('');
   const [selectedMoves, setSelectedMoves] = useState<SelectedMove[]>(() => createEmptyMoves());
@@ -1045,43 +1053,118 @@ export function ClashZkArena({
       setError('Enter a valid points amount');
       return;
     }
-    if (!opponentAddress.trim()) {
-      setError('Enter opponent contract address (C...)');
-      return;
-    }
-    if (opponentAddress.trim() === userAddress) {
-      setError('Cannot play against yourself');
+    if (!opponentUsername.trim()) {
+      setError('Enter opponent username');
       return;
     }
     setBusy(true);
     setStartingDuel(true);
     try {
-      const sid = createRandomSessionId();
-      setSessionId(sid);
-      setSelectedMoves(createEmptyMoves());
-      setStoredPublicInputs(null);
-      setProofBundle(null);
-      setProofMovesKey(null);
-      setCommitPhase('idle');
-      setCommitTxError(null);
-      setGamePlayback(null);
-      setGameState(null);
-      await clashService.startGameWithSmartAccount(
-        sid,
+      const targetAddress = await clashService.getAddressByUsername(opponentUsername.trim().toLowerCase());
+      if (!targetAddress) {
+        setError('Username not found');
+        return;
+      }
+      if (targetAddress === userAddress) {
+        setError('Cannot challenge yourself');
+        return;
+      }
+      await clashService.sendChallengeWithSmartAccount(
         userAddress,
-        opponentAddress.trim(),
-        pts,
+        targetAddress,
         pts,
         smartAccountService
       );
-      setPhase('commit');
-      setSuccess('Duel started. Plan your 3 turns.');
-      await loadGameState();
+      setSuccess(`Challenge sent to @${opponentUsername.trim().toLowerCase()}`);
     } catch (e) {
       setCriticalError(e instanceof Error ? e.message : 'Failed to start game');
     } finally {
       setBusy(false);
       setStartingDuel(false);
+    }
+  };
+
+  const loadChallenges = useCallback(async () => {
+    setChallengesLoading(true);
+    try {
+      const res = await clashService.getPlayerChallenges(userAddress);
+      setAllChallenges({
+        active: res.active,
+        completed: res.completed,
+        expired: res.expired,
+      });
+      const challengeAddresses = new Set<string>();
+      for (const challenge of [...res.active, ...res.completed, ...res.expired]) {
+        if (challenge.challenger) challengeAddresses.add(challenge.challenger);
+        if (challenge.challenged) challengeAddresses.add(challenge.challenged);
+      }
+      if (challengeAddresses.size > 0) {
+        const usernames = await Promise.all(
+          Array.from(challengeAddresses).map(async (address) => {
+            try {
+              const name = await clashService.getUsername(address);
+              return [address, name] as const;
+            } catch {
+              return [address, null] as const;
+            }
+          })
+        );
+        setChallengeUsernames((prev) => ({ ...prev, ...Object.fromEntries(usernames) }));
+      }
+      const completedSessionIds = Array.from(
+        new Set(
+          res.completed
+            .map((challenge) => (challenge.session_id == null ? null : Number(challenge.session_id)))
+            .filter((sid): sid is number => sid !== null && sid > 0)
+        )
+      );
+      const missingOutcomes = completedSessionIds.filter((sid) => challengeOutcomes[sid] === undefined);
+      if (missingOutcomes.length > 0) {
+        const outcomes = await Promise.all(
+          missingOutcomes.map(async (sid) => {
+            try {
+              const playback = await clashService.getGamePlayback(sid);
+              if (!playback) return [sid, 'unknown'] as const;
+              if (playback.is_draw) return [sid, 'draw'] as const;
+              const winner = playback.winner?.toString?.() ?? '';
+              if (!winner) return [sid, 'unknown'] as const;
+              return [sid, winner === userAddress ? 'win' : 'loss'] as const;
+            } catch {
+              return [sid, 'unknown'] as const;
+            }
+          })
+        );
+        setChallengeOutcomes((prev) => ({ ...prev, ...Object.fromEntries(outcomes) }));
+      }
+    } finally {
+      setChallengesLoading(false);
+    }
+  }, [challengeOutcomes, clashService, userAddress]);
+
+  useEffect(() => {
+    if (phase !== 'create') return;
+    void loadChallenges();
+    const id = window.setInterval(() => void loadChallenges(), 8000);
+    return () => window.clearInterval(id);
+  }, [phase, loadChallenges]);
+
+  const handleAcceptChallenge = async (challengeId: number) => {
+    setBusy(true);
+    try {
+      const sid = createRandomSessionId();
+      await clashService.acceptChallengeWithSmartAccount(challengeId, userAddress, sid, smartAccountService);
+      setSessionId(sid);
+      const acceptedGame = await clashService.getGame(sid);
+      if (acceptedGame) {
+        setGameState(acceptedGame);
+      }
+      setPhase('commit');
+      setSuccess('Challenge accepted. Duel started.');
+      await loadChallenges();
+    } catch (e) {
+      setCriticalError(e instanceof Error ? e.message : 'Failed to accept challenge');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1125,6 +1208,50 @@ export function ClashZkArena({
       await loadGameState();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load game');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openSessionFromHistory = async (sid: number) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const game = await clashService.getGame(sid);
+      if (!game) {
+        setError('Game not found for this challenge session');
+        return;
+      }
+      if (game.player1 !== userAddress && game.player2 !== userAddress) {
+        setError('You are not a player in this challenge session');
+        return;
+      }
+      setSessionId(sid);
+      const loaded = loadMovesFromStorage(sid, userAddress);
+      setSelectedMoves(loaded);
+      setStoredPublicInputs(loadPublicInputs(sid, userAddress));
+      setProofBundle(null);
+      setProofMovesKey(null);
+      setCommitPhase('idle');
+      setCommitTxError(null);
+      setGameState(game);
+      if (game.has_battle_result) {
+        setPhase('complete');
+        const pb = await clashService.getGamePlayback(sid);
+        if (pb) setGamePlayback(pb);
+      } else if (game.player1_commitment?.has_revealed && game.player2_commitment?.has_revealed) {
+        setPhase('resolve');
+      } else if (game.has_player1_commitment && game.has_player2_commitment) {
+        setPhase('reveal');
+      } else {
+        const isP1 = game.player1 === userAddress;
+        const hasMyCommit = isP1 ? game.has_player1_commitment : game.has_player2_commitment;
+        setPhase(hasMyCommit ? 'waiting_reveal' : 'commit');
+      }
+      setSuccess(`Loaded challenge session #${sid}`);
+      await loadGameState();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load challenge session');
     } finally {
       setBusy(false);
     }
@@ -1392,6 +1519,14 @@ export function ClashZkArena({
     .join(' ');
 
   const explorerHref = stellarExplorerContractUrl(CLASH_CONTRACT || '');
+  const sortedChallenges = useMemo(
+    () => [...allChallenges.active, ...allChallenges.completed, ...allChallenges.expired].sort((a, b) => Number(b.created_at) - Number(a.created_at)),
+    [allChallenges]
+  );
+  const incomingPendingChallenges = useMemo(
+    () => allChallenges.active.filter((c) => c.challenged === userAddress && !c.is_accepted),
+    [allChallenges.active, userAddress]
+  );
 
   const finishOnboardingSeen = () => {
     try {
@@ -1536,14 +1671,14 @@ export function ClashZkArena({
       {phase === 'create' && (
         <motion.div initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="duel-setup-grid">
           <section className="arena-card">
-            <h3>Start New Duel</h3>
+            <h3>Challenge by Username</h3>
             <label>Stake / Points</label>
             <div className="field-with-unit">
               <input value={pointsStr} onChange={(e) => setPointsStr(e.target.value)} placeholder="0.1" />
               <span>XLM</span>
             </div>
-            <label>Opponent Address</label>
-            <input value={opponentAddress} onChange={(e) => setOpponentAddress(e.target.value)} placeholder="C..." />
+            <label>Opponent Username</label>
+            <input value={opponentUsername} onChange={(e) => setOpponentUsername(e.target.value)} placeholder="captain_name" />
             {error && <p className="inline-error">{error}</p>}
             <button
               type="button"
@@ -1556,9 +1691,98 @@ export function ClashZkArena({
               {startingDuel ? (
                 <Loader2 className="start-duel-btn-spinner" size={22} aria-hidden />
               ) : (
-                '⚔ START DUEL'
+                '⚔ SEND CHALLENGE'
               )}
             </button>
+            <div className="mono dim" style={{ marginTop: 10 }}>
+              Game starts only when opponent accepts.
+            </div>
+          </section>
+          <section className="arena-card">
+            <h3>Incoming Challenges</h3>
+            {!challengesLoading && incomingPendingChallenges.length === 0 && <p className="mono dim">No active challenges</p>}
+            {incomingPendingChallenges.map((challenge) => (
+              <div key={`${challenge.challenge_id}-${challenge.challenger}`} className="status-pill warning" style={{ marginBottom: 10 }}>
+                <span>From {truncateAddr(challenge.challenger)} for {Number(challenge.points_wagered) / 10_0000000} XLM</span>
+                <button
+                  type="button"
+                  className="btn-arena-secondary"
+                  style={{ marginLeft: 8 }}
+                  disabled={busy}
+                  onClick={() => void handleAcceptChallenge(Number(challenge.challenge_id))}
+                >
+                  Accept
+                </button>
+              </div>
+            ))}
+          </section>
+          <section className="arena-card">
+            <h3>Challenge History</h3>
+            {!challengesLoading && sortedChallenges.length === 0 && <p className="mono dim">No challenges yet</p>}
+            {sortedChallenges.map((challenge) => {
+              const isIncoming = challenge.challenged === userAddress;
+              const otherAddress = isIncoming ? challenge.challenger : challenge.challenged;
+              const otherUsername = challengeUsernames[otherAddress];
+              const status = challenge.is_accepted ? 'Accepted' : challenge.is_completed ? 'Completed' : 'Pending';
+              const statusClass = challenge.is_accepted ? 'success' : challenge.is_completed ? 'warning' : 'warning';
+              const sessionId = challenge.session_id == null ? null : Number(challenge.session_id);
+              const canEnterSession = challenge.is_accepted && !challenge.is_completed && sessionId !== null;
+              const completedOutcome = sessionId != null ? challengeOutcomes[sessionId] : undefined;
+              const concludedLabel = completedOutcome === 'win'
+                ? 'Won'
+                : completedOutcome === 'loss'
+                  ? 'Lost'
+                  : completedOutcome === 'draw'
+                    ? 'Draw'
+                    : 'Concluded';
+              return (
+                <button
+                  key={`history-${challenge.challenge_id}`}
+                  type="button"
+                  className={`status-pill ${statusClass} challenge-history-item ${canEnterSession ? 'challenge-history-item--link' : ''}`}
+                  onClick={() => {
+                    if (canEnterSession && sessionId !== null) {
+                      void openSessionFromHistory(sessionId);
+                    }
+                  }}
+                  disabled={busy || !canEnterSession}
+                  title={canEnterSession ? 'Enter this active challenge session' : 'Session unavailable'}
+                >
+                  <div className="challenge-history-row">
+                    <strong>{isIncoming ? 'From' : 'To'} {otherUsername ? `@${otherUsername}` : truncateAddr(otherAddress)}</strong>
+                    <span>
+                      {challenge.is_completed ? (
+                        <>
+                          Concluded{' '}
+                          <span
+                            className={`challenge-history-outcome ${
+                              completedOutcome === 'win'
+                                ? 'challenge-history-outcome--win'
+                                : completedOutcome === 'loss'
+                                  ? 'challenge-history-outcome--loss'
+                                  : completedOutcome === 'draw'
+                                    ? 'challenge-history-outcome--draw'
+                                    : ''
+                            }`}
+                          >
+                            {concludedLabel}
+                          </span>
+                        </>
+                      ) : canEnterSession ? (
+                        `${status} · Enter`
+                      ) : (
+                        status
+                      )}
+                    </span>
+                  </div>
+                  <div className="challenge-history-meta">
+                    <span>Wager: {Number(challenge.points_wagered) / 10_0000000} XLM</span>
+                    <span>ID: {Number(challenge.challenge_id)}</span>
+                    <span>Session: {sessionId === null ? '—' : sessionId}</span>
+                  </div>
+                </button>
+              );
+            })}
           </section>
           <section className="arena-card">
             <h3>Rejoin Arena</h3>
@@ -1831,6 +2055,8 @@ export function ClashZkArena({
             const oppHp = isP1Local ? battlePlayback.ui.hp2 : battlePlayback.ui.hp1;
             const localAddr = isP1Local ? gamePlayback.player1 : gamePlayback.player2;
             const oppAddr = isP1Local ? gamePlayback.player2 : gamePlayback.player1;
+            const localUsername = isP1Local ? gamePlayback.player1_username : gamePlayback.player2_username;
+            const oppUsername = isP1Local ? gamePlayback.player2_username : gamePlayback.player1_username;
             const npTier = (hp: number) => (hp > 60 ? 'hi' : hp > 30 ? 'mid' : 'low');
             const narr = battlePlayback.ui.narration;
             return (
@@ -1886,7 +2112,7 @@ export function ClashZkArena({
                         )}
                       </AnimatePresence>
                       <div className="cinematic-nameplate">
-                        <div className="cinematic-nameplate-title you">⚡ YOU</div>
+                        <div className="cinematic-nameplate-title you">⚡ {localUsername ? `@${localUsername}` : 'YOU'}</div>
                         <div className="cinematic-nameplate-addr mono">{truncateAddr(localAddr)}</div>
                         <div className="cinematic-nameplate-hp">
                           <span className="cinematic-nameplate-hp-label">HP:</span>
@@ -2003,7 +2229,7 @@ export function ClashZkArena({
                         )}
                       </AnimatePresence>
                       <div className="cinematic-nameplate cinematic-nameplate--opp">
-                        <div className="cinematic-nameplate-title opp">OPPONENT</div>
+                        <div className="cinematic-nameplate-title opp">{oppUsername ? `@${oppUsername}` : 'OPPONENT'}</div>
                         <div className="cinematic-nameplate-addr mono">{truncateAddr(oppAddr)}</div>
                         <div className="cinematic-nameplate-hp">
                           <span className="cinematic-nameplate-hp-label">HP:</span>
@@ -2086,7 +2312,7 @@ export function ClashZkArena({
                           }
                         >
                           {battlePlayback.ui.outcome === 'win'
-                            ? '+60 (victory!)'
+                            ? '+30 (victory!)'
                             : battlePlayback.ui.outcome === 'loss'
                               ? '−15'
                               : '0'}
