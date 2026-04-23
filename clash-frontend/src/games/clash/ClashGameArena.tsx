@@ -91,12 +91,21 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [sessionExpiresLedger, setSessionExpiresLedger] = useState<number | null>(null);
   const [hasActiveSessionKey, setHasActiveSessionKey] = useState(false);
+  const [sessionRenewPromptOpen, setSessionRenewPromptOpen] = useState(false);
+  const [sessionRenewPromptDismissed, setSessionRenewPromptDismissed] = useState(false);
   const [trackerPoints, setTrackerPoints] = useState<number | null>(null);
   const [trackerPointsLoading, setTrackerPointsLoading] = useState(false);
   const [trackerPointsError, setTrackerPointsError] = useState(false);
   const [arenaReady, setArenaReady] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
+  const [identityLoaded, setIdentityLoaded] = useState(false);
+  const [usernamePromptOpen, setUsernamePromptOpen] = useState(false);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [usernameBusy, setUsernameBusy] = useState(false);
+  const [cshBalance, setCshBalance] = useState<bigint>(0n);
   const balancePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const balanceAnimFromRef = useRef(0);
+  const prevHasActiveSessionKeyRef = useRef(false);
 
   const refreshFastSigningState = useCallback(() => {
     setFastSigning(smartAccountService.hasClashSigningSession());
@@ -128,6 +137,22 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       setTrackerPointsLoading(false);
     }
   }, [userAddress]);
+
+  const fetchIdentityData = useCallback(async (address: string) => {
+    try {
+      const [name, csh] = await Promise.all([
+        clashService.getUsername(address),
+        clashService.getCshBalance(address),
+      ]);
+      setUsername(name);
+      setCshBalance(csh);
+    } catch {
+      setUsername(null);
+      setCshBalance(0n);
+    } finally {
+      setIdentityLoaded(true);
+    }
+  }, [clashService]);
 
   useEffect(() => {
     void fetchTrackerPoints();
@@ -230,6 +255,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
             setBalanceLoading(true);
             void fetchBalanceWithRetry(contractId);
             void evaluateSessionKeyUi(contractId);
+            void fetchIdentityData(contractId);
           }
         }
         setSessionRestored(restored);
@@ -242,7 +268,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       }
     };
     void init();
-  }, [smartAccountService, refreshFastSigningState, fetchBalanceWithRetry, evaluateSessionKeyUi]);
+  }, [smartAccountService, refreshFastSigningState, fetchBalanceWithRetry, evaluateSessionKeyUi, fetchIdentityData]);
 
   useEffect(() => {
     if (balanceLoading || balance === null) return;
@@ -288,9 +314,60 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
     return () => clearInterval(id);
   }, [userAddress, walletConnected, evaluateSessionKeyUi]);
 
+  useEffect(() => {
+    if (!walletConnected) {
+      setSessionRenewPromptOpen(false);
+      setSessionRenewPromptDismissed(false);
+      prevHasActiveSessionKeyRef.current = false;
+      return;
+    }
+    if (hasActiveSessionKey) {
+      setSessionRenewPromptOpen(false);
+      setSessionRenewPromptDismissed(false);
+      prevHasActiveSessionKeyRef.current = true;
+      return;
+    }
+    const isFirstTimeSetup = identityLoaded && username === null;
+    const wasPreviouslyActive = prevHasActiveSessionKeyRef.current;
+    const shouldPrompt =
+      (isFirstTimeSetup || wasPreviouslyActive) &&
+      !fastSigningBusy &&
+      walletGateBusy === null &&
+      !usernamePromptOpen &&
+      (isFirstTimeSetup || !sessionRenewPromptDismissed);
+    if (shouldPrompt) {
+      setSessionRenewPromptOpen(true);
+    }
+    prevHasActiveSessionKeyRef.current = false;
+  }, [
+    walletConnected,
+    identityLoaded,
+    username,
+    hasActiveSessionKey,
+    fastSigningBusy,
+    walletGateBusy,
+    usernamePromptOpen,
+    sessionRenewPromptDismissed,
+  ]);
+
+  useEffect(() => {
+    const shouldOpenUsernamePrompt =
+      walletConnected &&
+      identityLoaded &&
+      hasActiveSessionKey &&
+      username === null &&
+      !usernameBusy;
+    if (shouldOpenUsernamePrompt) {
+      setUsernamePromptOpen(true);
+    } else if (!walletConnected || username !== null) {
+      setUsernamePromptOpen(false);
+    }
+  }, [walletConnected, identityLoaded, hasActiveSessionKey, username, usernameBusy]);
+
   const handleCreateWallet = async () => {
     setWalletGateBusy('create');
     setError(null);
+    setIdentityLoaded(false);
     try {
       const result = await smartAccountService.createFreshWallet('Clash', `player_${Date.now()}`, true);
       setUserAddress(result.contractId);
@@ -298,6 +375,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       setBalanceLoading(true);
       void fetchBalanceWithRetry(result.contractId);
       void evaluateSessionKeyUi(result.contractId);
+      void fetchIdentityData(result.contractId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(`Failed to create wallet: ${message}`);
@@ -309,6 +387,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
   const handleSignInWithPasskey = async () => {
     setWalletGateBusy('connect');
     setError(null);
+    setIdentityLoaded(false);
     try {
       const result = await smartAccountService.connectWallet(true);
       if (result) {
@@ -317,6 +396,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
         setBalanceLoading(true);
         void fetchBalanceWithRetry(result.contractId);
         void evaluateSessionKeyUi(result.contractId);
+        void fetchIdentityData(result.contractId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -337,6 +417,36 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
     setDisplayBalance(0);
     setHasActiveSessionKey(false);
     setSessionExpiresLedger(null);
+    setUsername(null);
+    setIdentityLoaded(false);
+    setCshBalance(0n);
+  };
+
+  const handleSaveUsername = async () => {
+    if (!userAddress) return;
+    const normalized = usernameInput.trim().toLowerCase();
+    if (normalized.length < 3) {
+      setError('Username must be at least 3 characters');
+      return;
+    }
+    setUsernameBusy(true);
+    setError(null);
+    try {
+      const existingOwner = await clashService.getAddressByUsername(normalized);
+      if (existingOwner && existingOwner !== userAddress) {
+        setError('Username already taken. Try another one.');
+        return;
+      }
+      await clashService.setUsernameWithSmartAccount(userAddress, normalized, smartAccountService);
+      setUsername(normalized);
+      setUsernamePromptOpen(false);
+      setUsernameInput('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to set username';
+      setError(message);
+    } finally {
+      setUsernameBusy(false);
+    }
   };
 
   const handleStartFastSigning = async () => {
@@ -346,6 +456,8 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
       await smartAccountService.startClashSigningSession(CLASH_CONTRACT_ID);
       refreshFastSigningState();
       await evaluateSessionKeyUi(userAddress);
+      setSessionRenewPromptOpen(false);
+      setSessionRenewPromptDismissed(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setError(`Fast signing setup failed: ${message}`);
@@ -397,6 +509,7 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
           {walletConnected && userAddress ? (
             <div className="wallet-pill-identity">
               <span className="wallet-pill-you">⚡ YOU</span>
+              <span className="wallet-pill-you">@{username ?? 'anonymous'}</span>
               <CopyChip label="" value={userAddress} display={`${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`} />
             </div>
           ) : (
@@ -548,6 +661,10 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
                 <small className="rail-points-sub">Across all duels (on-chain)</small>
               </div>
               <div className="rail-card">
+                <span>CSH Balance</span>
+                <strong className="mono rail-balance">{Number(cshBalance) / 10_0000000} CSH</strong>
+              </div>
+              <div className="rail-card">
                 <span>Balance</span>
                 <strong className={`mono rail-balance ${balanceLoading ? 'rail-balance-loading' : ''}`}>
                   {balanceLoading ? '-- XLM' : `${formatBalanceNum(balance)} XLM`}
@@ -627,16 +744,72 @@ export function ClashGameArena({ onOpenLeaderboard, onWalletAddressChange }: Cla
                 sessionPointsError={trackerPointsError}
                 onRefreshSessionPoints={() => void fetchTrackerPoints()}
                 onBattleResolved={() =>
-                  void fetchTrackerPoints({
-                    // Allow RPC/ledger to reflect record_result after resolve (awaited in clashService).
-                    postRecordSettleMs: 450,
-                  })
+                  Promise.all([
+                    fetchTrackerPoints({
+                      // Allow RPC/ledger to reflect record_result after resolve (awaited in clashService).
+                      postRecordSettleMs: 450,
+                    }),
+                    userAddress ? fetchIdentityData(userAddress) : Promise.resolve(),
+                  ]).then(() => undefined)
                 }
               />
             </section>
           </motion.div>
         )}
       </AnimatePresence>
+      {walletConnected && usernamePromptOpen && (
+        <div className="username-dialog-backdrop" role="presentation">
+          <div className="username-dialog" role="dialog" aria-live="polite" aria-label="Choose username">
+            <p className="username-dialog-title">Choose your captain username</p>
+            <p className="username-dialog-subtitle">This is how other players find and challenge you.</p>
+            <input
+              value={usernameInput}
+              onChange={(e) => setUsernameInput(e.target.value)}
+              placeholder="lowercase letters, numbers, underscore"
+              className="username-dialog-input"
+            />
+            <button
+              className="btn-arena-primary username-dialog-save"
+              disabled={usernameBusy}
+              onClick={() => void handleSaveUsername()}
+            >
+              {usernameBusy ? 'Saving...' : 'Save Username'}
+            </button>
+          </div>
+        </div>
+      )}
+      {walletConnected && sessionRenewPromptOpen && !usernamePromptOpen && (
+        <div className="session-renew-backdrop" role="presentation">
+          <div className="session-renew-dialog" role="dialog" aria-label="Session key renewal">
+            <p className="session-renew-title">{username === null ? 'Step 1 of 2: Create session key' : 'Session key inactive'}</p>
+            <p className="session-renew-body">
+              {username === null
+                ? 'Create your session key first. After that, we will ask you to choose your username.'
+                : 'Fast signing is off. Create a new session key to keep gasless one-tap gameplay for the next 24 hours.'}
+            </p>
+            <button
+              type="button"
+              className="btn-arena-primary session-renew-primary"
+              disabled={fastSigningBusy}
+              onClick={() => void handleStartFastSigning()}
+            >
+              {fastSigningBusy ? 'Creating session...' : 'Create New Session Key'}
+            </button>
+            {username !== null && (
+              <button
+                type="button"
+                className="session-renew-dismiss"
+                onClick={() => {
+                  setSessionRenewPromptOpen(false);
+                  setSessionRenewPromptDismissed(true);
+                }}
+              >
+                Maybe later
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
