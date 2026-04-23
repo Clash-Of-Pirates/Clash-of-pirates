@@ -40,8 +40,8 @@ Clash of Pirates is a strategic turn-based dueling game where two pirate captain
 | **Clash** (game logic) | [CCRG66MIX7ATFB4T3VJZ4TJLWKNRXKBX6HZWPUL2U2UQLUO5564F5IL5](https://stellar.expert/explorer/testnet/contract/CCRG66MIX7ATFB4T3VJZ4TJLWKNRXKBX6HZWPUL2U2UQLUO5564F5IL5) |
 | **Game Hub** (economy) | `CABIDOAQBAX55E44PNKC4UPWTJQAYJ6M2AVSKQGY5JHGRIQC3E6ZXWDC` |
 | **Clash Token** (CSH rewards) | [CBO7OBLF5WXIIFCQIWGCVR53NWKPF6HE44DMJVT7SCEEH56NTXTRBTQN](https://stellar.expert/explorer/testnet/contract/CBO7OBLF5WXIIFCQIWGCVR53NWKPF6HE44DMJVT7SCEEH56NTXTRBTQN) |
-| **UltraHonk verifier** | [CDYSIIKC…OLYN5](https://stellar.expert/explorer/testnet/contract/CDYSIIKCU222C7TKJF5XQ5TTZGULQOH4SA7TRAKAHOAGWJG6Q24OLYN5) |
-| **Points tracker** (duel points / leaderboard) | [CBGYEIOW…UMD6S](https://stellar.expert/explorer/testnet/contract/CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S) |
+| **UltraHonk verifier** | [CCC4YINDGF7Z6OJ3WMSPR3OKIQQ4PVHQ6IMVJR7NORZX4PNFD565TLQV](https://stellar.expert/explorer/testnet/contract/CCC4YINDGF7Z6OJ3WMSPR3OKIQQ4PVHQ6IMVJR7NORZX4PNFD565TLQV) |
+| **Points tracker** (duel points / leaderboard) | [CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S](https://stellar.expert/explorer/testnet/contract/CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S) |
 
 Configure the Clash ID in `.env` as `VITE_CLASH_CONTRACT_ID`. For local admin-signed `record_result`, set `VITE_DEV_POINTS_TRACKER_*` vars (see `clash-frontend/src/services/pointsService.ts`).
 
