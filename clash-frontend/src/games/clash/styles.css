@@ -98,6 +98,88 @@
   color: #8a8a9a;
   max-width: 280px;
 }
+.username-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 205;
+  background: rgba(0, 0, 0, 0.7);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.username-dialog {
+  width: min(430px, 100%);
+  background: #111118;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 1.1rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+.username-dialog-title {
+  margin: 0;
+  color: #f0f0f5;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.username-dialog-subtitle {
+  margin: 0.4rem 0 0.8rem;
+  color: #8a8a9a;
+  font-size: 0.8rem;
+}
+.username-dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.65rem;
+}
+.username-dialog-save {
+  margin-top: 0;
+}
+.session-renew-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 206;
+  background: rgba(0, 0, 0, 0.68);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.session-renew-dialog {
+  width: min(460px, 100%);
+  background: #111118;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 8px;
+  padding: 1.1rem;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.5);
+}
+.session-renew-title {
+  margin: 0;
+  color: #00d4ff;
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  font-size: 1rem;
+}
+.session-renew-body {
+  margin: 0.5rem 0 0.9rem;
+  color: #c0c0d0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.session-renew-primary {
+  margin-top: 0;
+}
+.session-renew-dismiss {
+  margin-top: 0.6rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #8a8a9a;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.session-renew-dismiss:hover {
+  color: #a9a9ba;
+}
 .entry-gate-inner {
   position: relative;
   z-index: 1;
@@ -326,6 +408,65 @@
 .status-pill.warning { color: #f5a623; border-color: rgba(245,166,35,0.5); background: rgba(245,166,35,0.08); }
 .status-pill.success { color: #00d4ff; border-color: rgba(0,212,255,0.6); background: rgba(0,212,255,0.08); }
 .status-pill.error { color: #e5133a; border-color: rgba(229,19,58,0.7); background: rgba(229,19,58,0.1); display:flex; gap:0.4rem; align-items:center; }
+.challenge-history-item {
+  margin-bottom: 0.55rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  cursor: default;
+}
+.challenge-history-item--link {
+  cursor: pointer;
+}
+.challenge-history-item--link:hover:not(:disabled) {
+  border-color: rgba(0, 212, 255, 0.65);
+  background: rgba(0, 212, 255, 0.08);
+}
+.challenge-history-item:disabled {
+  opacity: 1;
+}
+.challenge-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.challenge-history-row strong {
+  font-size: 0.78rem;
+}
+.challenge-history-meta {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+  color: #8a8a9a;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+}
+.challenge-history-outcome {
+  margin-left: 0.25rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.challenge-history-outcome--win {
+  color: #3ecf8e;
+  border-color: rgba(62, 207, 142, 0.55);
+  background: rgba(62, 207, 142, 0.12);
+}
+.challenge-history-outcome--loss {
+  color: #e5133a;
+  border-color: rgba(229, 19, 58, 0.55);
+  background: rgba(229, 19, 58, 0.12);
+}
+.challenge-history-outcome--draw {
+  color: #f5a623;
+  border-color: rgba(245, 166, 35, 0.55);
+  background: rgba(245, 166, 35, 0.12);
+}
 .inline-error { color: #e5133a; margin: 0.25rem 0 0; font-size: 0.74rem; }
 
 .critical-banner {
@@ -2698,6 +2839,13 @@ button:disabled {
 }
 .leaderboard-captain {
   min-width: 140px;
+}
+.leaderboard-username {
+  color: #00d4ff;
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.15rem;
 }
 .leaderboard-addr-btn {
   font-family: 'JetBrains Mono', var(--font-mono), monospace;
