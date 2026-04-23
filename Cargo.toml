@@ -4,6 +4,7 @@ version = "0.1.2"
 members = [
   "contracts/mock-game-hub",
   "contracts/clash",
+  "contracts/clash_token",
   "contracts/oz-smart-account",
   "contracts/points_tracker",
 ]
