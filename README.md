@@ -37,9 +37,9 @@ Clash of Pirates is a strategic turn-based dueling game where two pirate captain
 
 | Contract | Explorer |
 |----------|----------|
-| **Clash** (game logic) | [CAWP7SZD…M6Q7](https://stellar.expert/explorer/testnet/contract/CAWP7SZDQUPTKNNFD6O5LRPD5NNMVIK3HLZVM67VVGCBXSKC6C5QM6Q7) |
+| **Clash** (game logic) | [CCRG66MIX7ATFB4T3VJZ4TJLWKNRXKBX6HZWPUL2U2UQLUO5564F5IL5](https://stellar.expert/explorer/testnet/contract/CCRG66MIX7ATFB4T3VJZ4TJLWKNRXKBX6HZWPUL2U2UQLUO5564F5IL5) |
 | **Game Hub** (economy) | `CABIDOAQBAX55E44PNKC4UPWTJQAYJ6M2AVSKQGY5JHGRIQC3E6ZXWDC` |
-| **Clash Token** (CSH rewards) | [CA2P572W…L3E5](https://stellar.expert/explorer/testnet/contract/CA2P572W72UUJAVGEBJSMNLOYJMRIATPZWRAL2YC3S7WVVAKIHLLL3E5) |
+| **Clash Token** (CSH rewards) | [CBO7OBLF5WXIIFCQIWGCVR53NWKPF6HE44DMJVT7SCEEH56NTXTRBTQN](https://stellar.expert/explorer/testnet/contract/CBO7OBLF5WXIIFCQIWGCVR53NWKPF6HE44DMJVT7SCEEH56NTXTRBTQN) |
 | **UltraHonk verifier** | [CDYSIIKC…OLYN5](https://stellar.expert/explorer/testnet/contract/CDYSIIKCU222C7TKJF5XQ5TTZGULQOH4SA7TRAKAHOAGWJG6Q24OLYN5) |
 | **Points tracker** (duel points / leaderboard) | [CBGYEIOW…UMD6S](https://stellar.expert/explorer/testnet/contract/CBGYEIOWGSY6TGM6BFGPEUKM37TKPXAEETDRYACHJKVHOBZRNBIUMD6S) |
 
